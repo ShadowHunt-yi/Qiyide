@@ -67,7 +67,11 @@ enum NavigatorTab: WorkspacePanelTab {
         case .project:
             ProjectNavigatorToolbarBottom()
         case .sourceControl:
-            if let sourceControlManager = workspace.sourceControlManager {
+            // 聚合视图下底部的「放弃全部改动 / 储藏」只作用于单个仓库，
+            // 为避免在跨仓库列表上误操作，此时隐藏底部工具栏。
+            if let store = workspace.sourceControlWorkspace,
+               !store.isShowingAllRepositories,
+               let sourceControlManager = workspace.sourceControlManager {
                 SourceControlNavigatorToolbarBottom()
                     .environmentObject(sourceControlManager)
             }

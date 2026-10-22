@@ -85,6 +85,10 @@ struct TaskNotificationView: View {
     }
 }
 
-#Preview {
+#if DEBUG
+struct TaskNotificationView_Previews: PreviewProvider {
+    static var previews: some View {
     TaskNotificationView(taskNotificationHandler: TaskNotificationHandler())
 }
+}
+#endif

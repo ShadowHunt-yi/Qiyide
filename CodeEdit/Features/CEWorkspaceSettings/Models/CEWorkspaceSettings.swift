@@ -22,7 +22,7 @@ final class CEWorkspaceSettings: ObservableObject {
     }
 
     init(workspaceURL: URL) {
-        folderURL = workspaceURL.appending(path: ".codeedit", directoryHint: .isDirectory)
+        folderURL = workspaceURL.appending(path: ".qiyide", directoryHint: .isDirectory)
         loadSettings()
 
         storeTask = $settings
@@ -42,7 +42,7 @@ final class CEWorkspaceSettings: ObservableObject {
         cleanUp()
     }
 
-    /// Load and construct ``CEWorkspaceSettings`` model from `.codeedit/settings.json`
+    /// Load and construct ``CEWorkspaceSettings`` model from `.qiyide/settings.json`
     private func loadSettings() {
         guard fileManager.fileExists(atPath: settingsURL.path),
               let json = try? Data(contentsOf: settingsURL),
@@ -51,7 +51,7 @@ final class CEWorkspaceSettings: ObservableObject {
         self.settings = prefs
     }
 
-    /// Save``CEWorkspaceSettingsManager`` model to `.codeedit/settings.json`
+    /// Save``CEWorkspaceSettingsManager`` model to `.qiyide/settings.json`
     func savePreferences() throws {
         // If the user doesn't have any settings to save, don't save them.
         guard !settings.isEmpty() else {

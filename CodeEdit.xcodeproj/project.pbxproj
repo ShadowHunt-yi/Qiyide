@@ -422,6 +422,7 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
 			);
 			mainGroup = B658FB2327DA9E0F00EA4DBD;
 			packageReferences = (
@@ -441,7 +442,7 @@
 				30ED7B722DD299E600ACC922 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 				5EACE6202DF4BF08005E08B8 /* XCRemoteSwiftPackageReference "WelcomeWindow" */,
 				5E44855F2DF600D9008BBE69 /* XCRemoteSwiftPackageReference "AboutWindow" */,
-				6C76D6D22E15B91E00EF52C3 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */,
+				6C76D6D22E15B91E00EF52C3 /* XCLocalSwiftPackageReference "../CodeEditSourceEditor" */,
 				6CCF73CE2E26DE3200B94F75 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 55;
@@ -688,8 +689,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = "Change in Info.plist";
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide;
+				PRODUCT_NAME = Qiyide;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_JIT = YES;
@@ -721,11 +722,11 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditTests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodeEdit.app/Contents/MacOS/CodeEdit";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Qiyide.app/Contents/MacOS/Qiyide";
 			};
 			name = Alpha;
 		};
@@ -748,7 +749,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -783,7 +784,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit.OpenWithCodeEdit;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide.OpenWithCodeEdit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SKIP_INSTALL = YES;
@@ -889,8 +890,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = "Change in Info.plist";
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide;
+				PRODUCT_NAME = Qiyide;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_JIT = YES;
@@ -922,11 +923,11 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditTests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodeEdit.app/Contents/MacOS/CodeEdit";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Qiyide.app/Contents/MacOS/Qiyide";
 			};
 			name = Beta;
 		};
@@ -949,7 +950,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -984,7 +985,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit.OpenWithCodeEdit;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide.OpenWithCodeEdit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SKIP_INSTALL = YES;
@@ -1019,7 +1020,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit.OpenWithCodeEdit;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide.OpenWithCodeEdit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SKIP_INSTALL = YES;
@@ -1054,7 +1055,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit.OpenWithCodeEdit;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide.OpenWithCodeEdit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SKIP_INSTALL = YES;
@@ -1162,8 +1163,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = "Change in Info.plist";
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide;
+				PRODUCT_NAME = Qiyide;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_JIT = YES;
@@ -1195,11 +1196,11 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditTests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodeEdit.app/Contents/MacOS/CodeEdit";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Qiyide.app/Contents/MacOS/Qiyide";
 			};
 			name = Pre;
 		};
@@ -1222,7 +1223,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1257,7 +1258,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit.OpenWithCodeEdit;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide.OpenWithCodeEdit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SKIP_INSTALL = YES;
@@ -1435,8 +1436,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = "Change in Info.plist";
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide;
+				PRODUCT_NAME = Qiyide;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_JIT = YES;
@@ -1479,8 +1480,8 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = "Change in Info.plist";
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEdit;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.Qiyide;
+				PRODUCT_NAME = Qiyide;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_JIT = YES;
@@ -1512,11 +1513,11 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditTests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodeEdit.app/Contents/MacOS/CodeEdit";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Qiyide.app/Contents/MacOS/Qiyide";
 			};
 			name = Debug;
 		};
@@ -1539,11 +1540,11 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditTests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodeEdit.app/Contents/MacOS/CodeEdit";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Qiyide.app/Contents/MacOS/Qiyide";
 			};
 			name = Release;
 		};
@@ -1566,7 +1567,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1595,7 +1596,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.codeedit.CodeEditUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = app.qiyide.QiyideUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -1798,13 +1799,9 @@
 				minimumVersion = 0.2.0;
 			};
 		};
-		6C76D6D22E15B91E00EF52C3 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/CodeEditApp/CodeEditSourceEditor";
-			requirement = {
-				kind = exactVersion;
-				version = 0.15.1;
-			};
+		6C76D6D22E15B91E00EF52C3 /* XCLocalSwiftPackageReference "../CodeEditSourceEditor" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../CodeEditSourceEditor;
 		};
 		6C85BB3E2C2105ED00EB5DEF /* XCRemoteSwiftPackageReference "CodeEditKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1822,13 +1819,9 @@
 				minimumVersion = 1.2.0;
 			};
 		};
-		6C9DB9E22D55656300ACD86E /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/CodeEditApp/CodeEditSourceEditor";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.10.0;
-			};
+		6C9DB9E22D55656300ACD86E /* XCLocalSwiftPackageReference "../CodeEditSourceEditor" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../CodeEditSourceEditor;
 		};
 		6CB94D012CA1205100E8651C /* XCRemoteSwiftPackageReference "swift-async-algorithms" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1927,7 +1920,7 @@
 		};
 		6C76D6D32E15B91E00EF52C3 /* CodeEditSourceEditor */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 6C76D6D22E15B91E00EF52C3 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			package = 6C76D6D22E15B91E00EF52C3 /* XCLocalSwiftPackageReference "../CodeEditSourceEditor" */;
 			productName = CodeEditSourceEditor;
 		};
 		6C7B1C752A1D57CE005CBBFC /* SwiftLint */ = {
@@ -1952,7 +1945,7 @@
 		};
 		6C9DB9E32D55656300ACD86E /* CodeEditSourceEditor */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 6C9DB9E22D55656300ACD86E /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			package = 6C9DB9E22D55656300ACD86E /* XCLocalSwiftPackageReference "../CodeEditSourceEditor" */;
 			productName = CodeEditSourceEditor;
 		};
 		6CB4463F2B6DFF3A00539ED0 /* CodeEditSourceEditor */ = {

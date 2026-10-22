@@ -223,7 +223,7 @@ final class CEWorkspaceFile: Codable, Comparable, Hashable, Identifiable, Editor
         if self.parent == nil {
             return "folder.fill.badge.gearshape"
         }
-        if self.name == ".codeedit" {
+        if self.name == ".qiyide" {
             return "folder.fill.badge.gearshape"
         }
         return isEmptyFolder ? "folder" : "folder.fill"

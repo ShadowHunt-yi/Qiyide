@@ -29,6 +29,16 @@ extension SourceControlNavigatorRepositoryView {
             sourceControlManager.switchToBranch = branch
         }
         .disabled(item.branch == nil || sourceControlManager.currentBranch == item.branch)
+        Button("Merge into Current Branch...") {
+            Task {
+                do {
+                    try await sourceControlManager.merge(branch: branch)
+                } catch {
+                    await sourceControlManager.handleMergeFailure(error)
+                }
+            }
+        }
+        .disabled(item.branch == nil || sourceControlManager.currentBranch == branch)
         Divider()
         Button(
             item.branch == nil && item.id != "BranchesGroup"

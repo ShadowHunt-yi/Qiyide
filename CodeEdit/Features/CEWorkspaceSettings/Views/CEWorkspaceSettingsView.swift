@@ -81,6 +81,11 @@ struct CEWorkspaceSettingsView: View {
     }
 }
 
-#Preview {
+#if DEBUG
+
+struct CEWorkspaceSettingsView_Previews: PreviewProvider {
+    static var previews: some View {
     CEWorkspaceSettingsView(dismiss: { print("Dismiss") })
 }
+}
+#endif

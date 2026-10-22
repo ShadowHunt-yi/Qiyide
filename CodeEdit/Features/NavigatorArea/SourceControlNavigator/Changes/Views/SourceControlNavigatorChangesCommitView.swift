@@ -79,10 +79,13 @@ struct SourceControlNavigatorChangesCommitView: View {
                             }
                         }
                     } label: {
-                        Text(allFilesStaged ? "Unstage All" : "Stage All")
+                        // 三元表达式得到的是 `String`，不会走 SwiftUI 的本地化重载，必须显式取译文。
+                        Text(NSLocalizedString(allFilesStaged ? "Unstage All" : "Stage All", comment: ""))
                             .frame(maxWidth: .infinity)
                     }
-                    Menu(isCommiting ? "Committing..." : "Commit") {
+                    Menu(isCommiting
+                         ? NSLocalizedString("Committing...", comment: "")
+                         : NSLocalizedString("Commit", comment: "")) {
                         Button("Commit and Push...") {
                             Task {
                                 self.isCommiting = true

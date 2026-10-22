@@ -12,7 +12,13 @@ import Combine
 /// A view that pops up a branch picker.
 struct ToolbarBranchPicker: View {
     private weak var workspaceFileManager: CEWorkspaceFileManager?
-    private weak var sourceControlManager: SourceControlManager?
+    /// 多根工作区下的仓库集合。切换仓库时该对象会发出变更，使工具栏跟随当前仓库。
+    @ObservedObject private var store: SourceControlWorkspace
+
+    /// 当前仓库。聚合视图下取最近一次选中的仓库。
+    private var sourceControlManager: SourceControlManager? {
+        store.activeManager ?? workspaceFileManager?.sourceControlManager
+    }
 
     @Environment(\.controlActiveState)
     private var controlActive
@@ -22,12 +28,15 @@ struct ToolbarBranchPicker: View {
     @State private var currentBranch: GitBranch?
 
     /// Initializes the ``ToolbarBranchPicker`` with an instance of a `WorkspaceClient`
-    /// - Parameter workspace: An instance of the current `WorkspaceClient`
+    /// - Parameters:
+    ///   - workspaceFileManager: 当前工作区的文件管理器。
+    ///   - store: 多根工作区的仓库集合。
     init(
-        workspaceFileManager: CEWorkspaceFileManager?
+        workspaceFileManager: CEWorkspaceFileManager?,
+        store: SourceControlWorkspace
     ) {
         self.workspaceFileManager = workspaceFileManager
-        self.sourceControlManager = workspaceFileManager?.sourceControlManager
+        _store = ObservedObject(wrappedValue: store)
     }
 
     var body: some View {
@@ -51,7 +60,7 @@ struct ToolbarBranchPicker: View {
                     .help(title)
                 if let currentBranch {
                     Menu(content: {
-                        if let sourceControlManager = workspaceFileManager?.sourceControlManager {
+                        if let sourceControlManager {
                             PopoverView(sourceControlManager: sourceControlManager)
                         }
                     }, label: {
@@ -83,6 +92,14 @@ struct ToolbarBranchPicker: View {
         ) { branch in
             self.currentBranch = branch
         }
+        .onChange(of: store.activeRepositoryID) { _, _ in
+            // 切换仓库后立即显示新仓库的分支，避免短暂显示上一个仓库的分支。
+            currentBranch = store.activeManager?.currentBranch
+            Task {
+                await store.activeManager?.refreshCurrentBranch()
+                await store.activeManager?.refreshBranches()
+            }
+        }
         .task {
             if Settings.shared.preferences.sourceControl.general.sourceControlIsEnabled {
                 await self.sourceControlManager?.refreshCurrentBranch()
@@ -99,7 +116,10 @@ struct ToolbarBranchPicker: View {
     }
 
     private var title: String {
-        workspaceFileManager?.folderUrl.lastPathComponent ?? "Empty"
+        if let activeRepository = store.activeRepository {
+            return activeRepository.displayName
+        }
+        return workspaceFileManager?.folderUrl.lastPathComponent ?? NSLocalizedString("Empty", comment: "")
     }
 
     // MARK: Popover View

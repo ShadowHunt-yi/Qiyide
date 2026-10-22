@@ -54,9 +54,13 @@ struct SourceControlNavigatorChangesView: View {
             }
         }
         .frame(maxHeight: .infinity)
-        .task {
+        // 以仓库路径为 key：切换仓库时重新拉取该仓库的改动与同步状态。
+        .task(id: sourceControlManager.workspaceURL.path) {
             await sourceControlManager.refreshAllChangedFiles()
             await sourceControlManager.refreshNumberOfUnsyncedCommits()
+            // 多根工作区下 WorkspaceView 的全局刷新只覆盖主仓库，这里补齐当前仓库。
+            try? await sourceControlManager.refreshRemotes()
+            try? await sourceControlManager.refreshStashEntries()
         }
     }
 }

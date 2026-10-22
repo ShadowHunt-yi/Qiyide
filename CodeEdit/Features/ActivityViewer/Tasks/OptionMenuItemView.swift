@@ -29,8 +29,12 @@ struct OptionMenuItemView: View {
     }
 }
 
-#Preview {
+#if DEBUG
+struct OptionMenuItemView_Previews: PreviewProvider {
+    static var previews: some View {
     OptionMenuItemView(label: "Test") {
         print("test")
     }
 }
+}
+#endif

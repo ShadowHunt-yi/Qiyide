@@ -34,10 +34,10 @@ struct CEContentUnavailableView<Actions: View>: View {
                         .foregroundStyle(.tertiary)
                         .padding(.bottom, 8)
                 }
-                Text(label)
+                Text(NSLocalizedString(label, comment: "Content unavailable label"))
                     .font(.system(size: 16.5, weight: systemImage != nil ? .bold : .regular))
                 if description != nil {
-                    Text(description ?? "")
+                    Text(NSLocalizedString(description ?? "", comment: "Content unavailable description"))
                         .font(.system(size: 10))
                         .multilineTextAlignment(.center)
                 }

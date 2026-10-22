@@ -156,9 +156,10 @@ final class SourceControlManager: ObservableObject {
     private func showAlert(title: String, message: String) async {
         await MainActor.run {
             let alert = NSAlert()
-            alert.messageText = title
+            // title 是 `String`，`messageText` 不会自动本地化，这里显式取译文。
+            alert.messageText = NSLocalizedString(title, comment: "Alert title")
             alert.informativeText = message
-            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
             alert.alertStyle = .warning
             alert.runModal()
         }

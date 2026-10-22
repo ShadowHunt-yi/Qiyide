@@ -65,8 +65,8 @@ struct LanguageServersView: View {
     }
 
     private func getInfoString() -> AttributedString {
-        let string = "CodeEdit makes use of the Mason Registry for language server installation. To install a package, "
-        + "CodeEdit uses the package manager directed by the Mason Registry, and installs a copy of "
+        let string = "Qiyide makes use of the Mason Registry for language server installation. To install a package, "
+        + "Qiyide uses the package manager directed by the Mason Registry, and installs a copy of "
         + "the language server in Application Support.\n\n"
         + "Language server installation is still experimental, there may be bugs and expect this flow "
         + "to change over time."

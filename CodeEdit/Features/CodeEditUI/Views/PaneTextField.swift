@@ -83,7 +83,9 @@ struct PaneTextField<LeadingAccessories: View, TrailingAccessories: View>: View 
                     .frame(height: 20)
             }
             VStack {
-                TextField(label, text: $text, axis: axis)
+                // `label` 是 `String`，直接传给 TextField 会走不本地化的重载；
+                // 转成 `LocalizedStringKey` 后才能命中 zh-Hans 译文。
+                TextField(LocalizedStringKey(label), text: $text, axis: axis)
                     .textFieldStyle(.plain)
                     .focused($isFocused)
                     .controlSize(.small)

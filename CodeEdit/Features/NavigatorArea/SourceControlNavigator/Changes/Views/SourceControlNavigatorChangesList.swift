@@ -39,6 +39,9 @@ struct SourceControlNavigatorChangesList: View {
                         Button("Open in New Tab") {
                             openGitFile(file)
                         }
+                        Button("View Diff") {
+                            GitDiffWindowPresenter.show(file: file, manager: sourceControlManager)
+                        }
                         Button("Open in New Window") {}
                             .disabled(true) // TODO: Implementation Needed
                     }
@@ -72,9 +75,10 @@ struct SourceControlNavigatorChangesList: View {
     }
 
     private func openGitFile(_ file: GitChangedFile) {
-        guard let ceFile = workspace.workspaceFileManager?.getFile(file.ceFileKey, createIfNotFound: true) else {
-            return
-        }
+        // 文件树尚未索引到该文件时（多根工作区、新建文件常见），直接用 URL 构造兜底。
+        // 原实现在这里静默 return，是「点击改动文件无反应」的直接来源。
+        let ceFile = workspace.workspaceFileManager?.getFile(file.ceFileKey, createIfNotFound: true)
+            ?? CEWorkspaceFile(url: file.fileURL)
         DispatchQueue.main.async {
             workspace.editorManager?.openTab(item: ceFile, asTemporary: true)
         }

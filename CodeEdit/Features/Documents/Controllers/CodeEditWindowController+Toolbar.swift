@@ -162,10 +162,12 @@ extension CodeEditWindowController {
         case .startTaskSidebarItem:
             return startTaskSidebarItem()
         case .branchPicker:
+            guard let store = workspace?.sourceControlWorkspace else { return nil }
             let toolbarItem = NSToolbarItem(itemIdentifier: .branchPicker)
             let view = NSHostingView(
                 rootView: ToolbarBranchPicker(
-                    workspaceFileManager: workspace?.workspaceFileManager
+                    workspaceFileManager: workspace?.workspaceFileManager,
+                    store: store
                 )
             )
             toolbarItem.view = view

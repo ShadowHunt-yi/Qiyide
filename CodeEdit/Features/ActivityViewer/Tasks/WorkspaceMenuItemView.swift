@@ -35,6 +35,10 @@ struct WorkspaceMenuItemView: View {
     }
 }
 
-#Preview {
+#if DEBUG
+struct WorkspaceMenuItemView_Previews: PreviewProvider {
+    static var previews: some View {
     WorkspaceMenuItemView()
 }
+}
+#endif

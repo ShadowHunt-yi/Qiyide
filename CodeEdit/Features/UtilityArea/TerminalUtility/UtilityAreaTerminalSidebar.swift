@@ -76,6 +76,10 @@ struct UtilityAreaTerminalSidebar: View {
     }
 }
 
-#Preview {
+#if DEBUG
+struct UtilityAreaTerminalSidebar_Previews: PreviewProvider {
+    static var previews: some View {
     UtilityAreaTerminalSidebar()
 }
+}
+#endif

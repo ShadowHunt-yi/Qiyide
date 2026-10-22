@@ -92,8 +92,15 @@ struct ProjectNavigatorOutlineView: NSViewControllerRepresentable {
                 && (outlineView.window?.firstResponder as? NSView)?.isDescendant(of: outlineView) == true {
                 controller?.shouldReloadAfterDoneEditing = true
             } else {
-                for item in updatedItems {
-                    outlineView.reloadItem(item, reloadChildren: true)
+                // 根节点集合发生变化（增删附加根目录）时必须整体刷新，逐项 reloadItem 不适用于顶层。
+                let roots = Set(workspace?.workspaceFileManager?.rootItems ?? [])
+                if updatedItems.isEmpty || !updatedItems.isDisjoint(with: roots) {
+                    outlineView.reloadData()
+                    controller?.expandRootItems()
+                } else {
+                    for item in updatedItems {
+                        outlineView.reloadItem(item, reloadChildren: true)
+                    }
                 }
             }
 

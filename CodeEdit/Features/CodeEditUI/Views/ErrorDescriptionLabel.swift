@@ -31,6 +31,10 @@ struct ErrorDescriptionLabel: View {
     }
 }
 
-#Preview {
+#if DEBUG
+struct ErrorDescriptionLabel_Previews: PreviewProvider {
+    static var previews: some View {
     ErrorDescriptionLabel(error: CancellationError())
 }
+}
+#endif

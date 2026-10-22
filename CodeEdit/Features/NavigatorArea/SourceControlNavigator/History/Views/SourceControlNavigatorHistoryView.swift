@@ -105,7 +105,8 @@ struct SourceControlNavigatorHistoryView: View {
                 }
             }
         }
-        .task {
+        // 切换仓库时重新加载该仓库的提交历史。
+        .task(id: sourceControlManager.workspaceURL.path) {
             await updateCommitHistory()
         }
         .onChange(of: showMergeCommitsPerFileLog) { _, _ in

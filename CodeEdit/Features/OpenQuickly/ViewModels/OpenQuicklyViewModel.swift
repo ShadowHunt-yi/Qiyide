@@ -13,11 +13,18 @@ final class OpenQuicklyViewModel: ObservableObject {
     @Published var query: String = ""
     @Published var searchResults: [SearchResult] = []
 
-    let fileURL: URL
+    /// 参与搜索的根目录。多根工作区下包含全部根；单根时只有一个元素。
+    let fileURLs: [URL]
+    /// 主根目录，保留以兼容既有调用点。
+    var fileURL: URL { fileURLs.first ?? URL(fileURLWithPath: "/") }
     var runningTask: Task<Void, Never>?
 
     init(fileURL: URL) {
-        self.fileURL = fileURL
+        self.fileURLs = [fileURL]
+    }
+
+    init(fileURLs: [URL]) {
+        self.fileURLs = fileURLs
     }
 
     /// This is used to populate the ``OpenQuicklyListItemView`` view which shows the search results to the user.
@@ -50,16 +57,20 @@ final class OpenQuicklyViewModel: ObservableObject {
 
         runningTask?.cancel()
         runningTask = Task.detached(priority: .userInitiated) {
-            let enumerator = FileManager.default.enumerator(
-                at: self.fileURL,
-                includingPropertiesForKeys: [
-                    .isRegularFileKey
-                ],
-                options: [
-                    .skipsPackageDescendants
-                ]
-            )
-            if let filePaths = enumerator?.allObjects as? [URL] {
+            // 多根工作区：合并所有根目录下的文件。
+            let filePaths: [URL] = self.fileURLs.flatMap { root -> [URL] in
+                let enumerator = FileManager.default.enumerator(
+                    at: root,
+                    includingPropertiesForKeys: [
+                        .isRegularFileKey
+                    ],
+                    options: [
+                        .skipsPackageDescendants
+                    ]
+                )
+                return enumerator?.allObjects as? [URL] ?? []
+            }
+            if !filePaths.isEmpty {
                 guard !Task.isCancelled else { return }
                 /// removes all filePaths which aren't regular files
                 let filteredFiles = filePaths.filter { url in

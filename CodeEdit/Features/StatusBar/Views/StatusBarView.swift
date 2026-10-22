@@ -65,6 +65,10 @@ struct StatusBarView: View {
 //            StatusBarBreakpointButton()
 //            StatusBarDivider()
             Spacer()
+            if MemoryProbe.isEnabled {
+                StatusBarMemoryLabel()
+                StatusBarDivider()
+            }
             StatusBarFileInfoView()
             StatusBarCursorPositionLabel()
             StatusBarDivider()

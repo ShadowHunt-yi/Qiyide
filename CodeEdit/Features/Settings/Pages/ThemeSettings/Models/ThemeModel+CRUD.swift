@@ -25,14 +25,14 @@ extension ThemeModel {
         }
     }
 
-    /// Loads all available themes from `~/Library/Application Support/CodeEdit/Themes/`
+    /// Loads all available themes from `~/Library/Application Support/Qiyide/Themes/`
     ///
     /// If no themes are available, it will create a default theme and save
     /// it to the location mentioned above.
     ///
-    /// When overrides are found in `~/Library/Application Support/CodeEdit/settings.json`
+    /// When overrides are found in `~/Library/Application Support/Qiyide/settings.json`
     /// they are applied to the loaded themes without altering the original
-    /// the files in `~/Library/Application Support/CodeEdit/Themes/`.
+    /// the files in `~/Library/Application Support/Qiyide/Themes/`.
     func loadThemes() throws { // swiftlint:disable:this function_body_length
         if let bundledThemesURL = bundledThemesURL {
             // remove all themes from memory
@@ -267,10 +267,10 @@ extension ThemeModel {
         }
     }
 
-    /// Removes the given theme from `–/Library/Application Support/CodeEdit/themes`
+    /// Removes the given theme from `–/Library/Application Support/Qiyide/themes`
     ///
     /// After removing the theme, themes are reloaded
-    /// from `~/Library/Application Support/CodeEdit/Themes`. See ``loadThemes()``
+    /// from `~/Library/Application Support/Qiyide/Themes`. See ``loadThemes()``
     /// for more information.
     ///
     /// - Parameter theme: The theme to delete

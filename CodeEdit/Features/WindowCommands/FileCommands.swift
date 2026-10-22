@@ -89,6 +89,18 @@ struct FileCommands: Commands {
             }
             .disabled(windowController?.workspace == nil)
 
+            Button("Add Folder to Workspace...") {
+                guard let workspace = windowController?.workspace else { return }
+                let panel = NSOpenPanel()
+                panel.canChooseDirectories = true
+                panel.canChooseFiles = false
+                panel.allowsMultipleSelection = true
+                panel.prompt = NSLocalizedString("Add", comment: "")
+                guard panel.runModal() == .OK else { return }
+                workspace.addRootFolders(panel.urls)
+            }
+            .disabled(windowController?.workspace == nil)
+
             Divider()
 
             Button("Save") {

@@ -25,11 +25,17 @@ final class ProjectNavigatorViewController: NSViewController {
 
     /// Gets the folder structure
     ///
-    /// Also creates a top level item "root" which represents the projects root directory and automatically expands it.
+    /// 多根工作区下返回所有根目录节点；单根时数组只有一个元素，行为与原先一致。
     var content: [CEWorkspaceFile] {
-        guard let folderURL = workspace?.workspaceFileManager?.folderUrl else { return [] }
-        guard let root = workspace?.workspaceFileManager?.getFile(folderURL.path) else { return [] }
-        return [root]
+        workspace?.workspaceFileManager?.rootItems ?? []
+    }
+
+    /// 展开全部根目录节点，用于根集合变化后（新增/移除附加目录）刷新视图。
+    func expandRootItems() {
+        guard let outlineView else { return }
+        for item in content {
+            outlineView.expandItem(item)
+        }
     }
 
     var filteredContentChildren: [CEWorkspaceFile: [CEWorkspaceFile]] = [:]

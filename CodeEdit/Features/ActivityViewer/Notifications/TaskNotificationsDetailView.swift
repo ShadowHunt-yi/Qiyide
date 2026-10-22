@@ -43,6 +43,10 @@ struct TaskNotificationsDetailView: View {
     }
 }
 
-#Preview {
+#if DEBUG
+struct TaskNotificationsDetailView_Previews: PreviewProvider {
+    static var previews: some View {
     TaskNotificationsDetailView(taskNotificationHandler: TaskNotificationHandler())
 }
+}
+#endif

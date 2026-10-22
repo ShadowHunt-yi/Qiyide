@@ -10,7 +10,7 @@ import SwiftUI
 struct HelpCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .help) {
-            Button("What's New in CodeEdit") {
+            Button("What's New in Qiyide") {
 
             }
             .disabled(true)

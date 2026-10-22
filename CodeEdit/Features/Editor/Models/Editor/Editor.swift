@@ -219,6 +219,14 @@ final class Editor: ObservableObject, Identifiable {
                 try openFile(item: newItem)
             } catch {
                 logger.error("Error opening file: \(error)")
+            // 只写日志等于「点击无反应」，必须给用户可见的失败原因。
+            NotificationManager.shared.post(
+                iconSymbol: "exclamationmark.triangle.fill",
+                title: NSLocalizedString("Failed to open file", comment: ""),
+                description: error.localizedDescription,
+                actionButtonTitle: "OK",
+                action: {}
+            )
             }
 
             clearFuture()
@@ -260,6 +268,14 @@ final class Editor: ObservableObject, Identifiable {
             try openFile(item: item)
         } catch {
             logger.error("Error opening file: \(error)")
+            // 只写日志等于「点击无反应」，必须给用户可见的失败原因。
+            NotificationManager.shared.post(
+                iconSymbol: "exclamationmark.triangle.fill",
+                title: NSLocalizedString("Failed to open file", comment: ""),
+                description: error.localizedDescription,
+                actionButtonTitle: "OK",
+                action: {}
+            )
         }
     }
 

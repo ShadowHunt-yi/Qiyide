@@ -42,6 +42,36 @@ struct NavigateCommands: Commands {
                 Divider()
 
             }
+            // 代码导航：把早已实现的 LSP 能力接到菜单上。
+            // 语言服务器需要在 设置 → 开发者 中配置二进制路径后才会运行。
+            Group {
+                Button("Hover Info") {
+                    Task { await LSPCodeActions.showHover(windowController?.workspace) }
+                }
+                .keyboardShortcut("h", modifiers: [.command, .option])
+
+                Button("Go to Definition") {
+                    Task { await LSPCodeActions.goToDefinition(windowController?.workspace) }
+                }
+                .keyboardShortcut("d", modifiers: [.command, .option])
+
+                Button("Find References") {
+                    Task { await LSPCodeActions.findReferences(windowController?.workspace) }
+                }
+                .keyboardShortcut("r", modifiers: [.command, .option])
+
+                Button("Rename Symbol") {
+                    Task { await LSPCodeActions.renameSymbol(windowController?.workspace) }
+                }
+                .keyboardShortcut("r", modifiers: [.command, .control])
+
+                Button("Format Document") {
+                    Task { await LSPCodeActions.formatDocument(windowController?.workspace) }
+                }
+                .keyboardShortcut("f", modifiers: [.command, .option])
+
+                Divider()
+            }
             Group {
                 Button("Show Previous Tab") {
                     editor?.selectPreviousTab()

@@ -14,22 +14,35 @@ struct SourceControlNavigatorView: View {
     var fetchRefreshServerStatus
 
     var body: some View {
-        if let sourceControlManager = workspace.sourceControlManager {
+        if let store = workspace.sourceControlWorkspace,
+           let sourceControlManager = workspace.sourceControlManager {
             VStack(spacing: 0) {
-                SourceControlNavigatorTabs()
-                    .environmentObject(sourceControlManager)
-                    .task {
-                        do {
-                            while true {
-                                if fetchRefreshServerStatus {
-                                    try await sourceControlManager.fetch()
-                                }
-                                try await Task.sleep(for: .seconds(10))
-                            }
-                        } catch {
-                            // TODO: if source fetching fails, display message
-                        }
+                // 多根工作区才需要仓库切换器；单根时保持原有界面不变。
+                if store.repositories.count > 1 {
+                    SourceControlRepositoryPicker(store: store)
+                    Divider()
+                }
+
+                if store.isShowingAllRepositories {
+                    SourceControlNavigatorAllChangesView(store: store)
+                } else {
+                    SourceControlNavigatorTabs()
+                        .environmentObject(sourceControlManager)
+                }
+            }
+            // 周期刷新挂在容器上而不是分页视图上：
+            // 分页视图在切换仓库、显示/隐藏切换器时会被重建，把 `.task` 挂在它上面会让
+            // 每次重建都重启一条 `git fetch`；而 `git fetch` 阻塞在管道读取上不响应取消，
+            // 于是旧任务留下的进程会持续堆积（崩溃报告里可见两条并行的 fetch 线程）。
+            .task(id: fetchRefreshServerStatus) {
+                guard fetchRefreshServerStatus else { return }
+                while !Task.isCancelled {
+                    // 每轮重新读取当前仓库，切换仓库后自动跟随。
+                    if let manager = workspace.sourceControlManager {
+                        try? await manager.fetch()
                     }
+                    try? await Task.sleep(for: .seconds(10))
+                }
             }
         }
     }
@@ -43,7 +56,11 @@ struct SourceControlNavigatorTabs: View {
         if sourceControlManager.isGitRepository {
             SegmentedControl(
                 $selectedSection,
-                options: ["Changes", "History", "Repository"],
+                options: [
+                    NSLocalizedString("Changes", comment: ""),
+                    NSLocalizedString("History", comment: ""),
+                    NSLocalizedString("Repository", comment: "")
+                ],
                 prominent: true
             )
             .frame(maxWidth: .infinity)
@@ -51,6 +68,9 @@ struct SourceControlNavigatorTabs: View {
             .padding(.horizontal, 8)
             Divider()
             if selectedSection == 0 {
+                // 高频 Git 操作：获取 / 拉取 / 推送 / 储藏 / 放弃全部。
+                SourceControlQuickActionsView()
+                Divider()
                 SourceControlNavigatorChangesView()
             }
             if selectedSection == 1 {

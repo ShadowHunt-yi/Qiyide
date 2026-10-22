@@ -24,9 +24,9 @@ final class ThemeModel: ObservableObject {
     /// Default instance of the `FileManager`
     let filemanager = FileManager.default
 
-    /// The base folder url `~/Library/Application Support/CodeEdit/`
+    /// The base folder url `~/Library/Application Support/Qiyide/`
     private var baseURL: URL {
-        filemanager.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/CodeEdit")
+        filemanager.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Qiyide")
     }
 
     var bundledThemesURL: URL? {

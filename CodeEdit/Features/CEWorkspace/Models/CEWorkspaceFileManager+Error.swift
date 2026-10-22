@@ -22,7 +22,7 @@ extension CEWorkspaceFileManager {
             case .fileNotFound:
                 return "File not found"
             case .fileNotIndexed:
-                return "File not found in CodeEdit"
+                return "File not found in Qiyide"
             case .originFileNotFound:
                 return "Failed to find origin file"
             case .destinationFileExists:

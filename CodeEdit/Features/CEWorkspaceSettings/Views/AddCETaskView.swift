@@ -47,6 +47,11 @@ struct AddCETaskView: View {
 
 }
 
-#Preview {
+#if DEBUG
+
+struct AddCETaskView_Previews: PreviewProvider {
+    static var previews: some View {
     AddCETaskView()
 }
+}
+#endif

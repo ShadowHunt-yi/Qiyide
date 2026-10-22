@@ -73,6 +73,11 @@ struct EditorHistoryMenus: View {
     }
 }
 
-#Preview {
+#if DEBUG
+
+struct EditorHistoryMenus_Previews: PreviewProvider {
+    static var previews: some View {
     EditorHistoryMenus()
 }
+}
+#endif

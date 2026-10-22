@@ -46,40 +46,143 @@ final class CEWorkspaceFileManager {
     var flattenedFileItems: [String: CEWorkspaceFile]
     /// Maps all directories to it's children's paths.
     var childrenMap: [String: [String]] = [:]
-    var fsEventStream: DirectoryEventStream?
+    /// 每个根目录一个文件系统事件流（多根工作区时会有多个）。
+    private var fsEventStreams: [DirectoryEventStream] = []
     var observers: NSHashTable<AnyObject> = .weakObjects()
 
+    /// 主根目录。保留该属性以兼容既有只支持单根的调用点。
     let folderUrl: URL
+    /// 主根对应的文件节点。
     let workspaceItem: CEWorkspaceFile
+    /// 全部根目录（多根工作区）。单根时只有一个元素，首元素即 ``folderUrl``。
+    private(set) var rootUrls: [URL]
+    /// 全部根目录对应的文件节点，顺序与 ``rootUrls`` 一致。
+    private(set) var rootItems: [CEWorkspaceFile]
     weak var sourceControlManager: SourceControlManager?
+    /// 多根工作区下的仓库集合，用于把文件系统事件路由到所属仓库。
+    weak var sourceControlWorkspace: SourceControlWorkspace?
 
-    /// Create a file  manager object with a root and a set of files to ignore.
+    /// 单根工作区的便利初始化器。
     /// - Parameters:
-    ///   - folderUrl: The folder to use as the root of the file manager.
-    ///   - ignoredFilesAndFolders: A set of files to ignore. These should not be paths, but rather file names
-    ///                             like `.DS_Store`
-    init(
+    ///   - folderUrl: 作为唯一根目录的文件夹。
+    ///   - ignoredFilesAndFolders: 需要忽略的文件名（如 `.DS_Store`），不是路径。
+    convenience init(
         folderUrl: URL,
         ignoredFilesAndFolders: Set<String>,
         fileManager: FileManager = FileManager.default,
         sourceControlManager: SourceControlManager?
     ) {
-        self.folderUrl = folderUrl
+        self.init(
+            rootUrls: [folderUrl],
+            ignoredFilesAndFolders: ignoredFilesAndFolders,
+            fileManager: fileManager,
+            sourceControlManager: sourceControlManager
+        )
+    }
+
+    /// 多根工作区初始化器。
+    /// - Parameters:
+    ///   - rootUrls: 根目录列表，至少一个；重复路径会被自动去重。
+    ///   - ignoredFilesAndFolders: 需要忽略的文件名（如 `.DS_Store`），不是路径。
+    init(
+        rootUrls: [URL],
+        ignoredFilesAndFolders: Set<String>,
+        fileManager: FileManager = FileManager.default,
+        sourceControlManager: SourceControlManager?
+    ) {
+        // 去重并保持顺序，避免同一目录被注册两次导致事件重复与键冲突。
+        var seen: Set<String> = []
+        let roots = rootUrls
+            .map { $0.standardizedFileURL }
+            .filter { seen.insert($0.path).inserted }
+
+        precondition(!roots.isEmpty, "A workspace requires at least one root folder")
+
+        self.rootUrls = roots
+        self.folderUrl = roots[0]
         self.ignoredFilesAndFolders = ignoredFilesAndFolders
 
-        self.workspaceItem = CEWorkspaceFile(url: folderUrl)
-        self.flattenedFileItems = [workspaceItem.id: workspaceItem]
+        let items = roots.map { CEWorkspaceFile(url: $0) }
+        self.rootItems = items
+        self.workspaceItem = items[0]
+        self.flattenedFileItems = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
         self.sourceControlManager = sourceControlManager
         self.fileManager = fileManager
 
-        self.loadChildrenForFile(self.workspaceItem)
+        for item in items {
+            self.loadChildrenForFile(item)
+        }
 
-        fsEventStream = DirectoryEventStream(directory: self.folderUrl.path) { [weak self] events in
-            self?.fileSystemEventReceived(events: events)
+        self.fsEventStreams = roots.map { root in
+            DirectoryEventStream(directory: root.path) { [weak self] events in
+                self?.fileSystemEventReceived(events: events)
+            }
         }
 
         Task {
             try await self.sourceControlManager?.validate()
+        }
+    }
+
+    /// 添加一个根目录，使其成为工作区的一部分（多根工作区）。
+    ///
+    /// 已存在的根会被忽略，因此该方法对重复调用是安全的。
+    /// - Parameter url: 要添加的文件夹。
+    /// - Returns: 新加入的根节点；若已存在则返回已有的节点。
+    @discardableResult
+    func addRoot(_ url: URL) -> CEWorkspaceFile {
+        let root = url.standardizedFileURL
+        if let existing = zip(rootUrls, rootItems).first(where: { $0.0.path == root.path })?.1 {
+            return existing
+        }
+
+        let item = CEWorkspaceFile(url: root)
+        rootUrls.append(root)
+        rootItems.append(item)
+        flattenedFileItems[item.id] = item
+        loadChildrenForFile(item)
+
+        fsEventStreams.append(
+            DirectoryEventStream(directory: root.path) { [weak self] events in
+                self?.fileSystemEventReceived(events: events)
+            }
+        )
+
+        observers.allObjects.forEach { observer in
+            (observer as? CEWorkspaceFileManagerObserver)?.fileManagerUpdated(updatedItems: [item])
+        }
+
+        return item
+    }
+
+    /// 移除一个根目录。不会删除磁盘上的任何内容，只是不再将其纳入工作区。
+    /// - Parameter url: 要移除的根目录。
+    func removeRoot(_ url: URL) {
+        let target = url.standardizedFileURL.path
+        guard rootUrls.count > 1, let index = rootUrls.firstIndex(where: { $0.path == target }) else {
+            return
+        }
+
+        let removed = rootItems.remove(at: index)
+        rootUrls.remove(at: index)
+
+        // 清理该根下的缓存条目，避免内存中残留已移除项目的文件树。
+        let removedPrefix = removed.url.path
+        let staleIDs = flattenedFileItems.compactMap { id, item in
+            item.url.path == removedPrefix || item.url.path.hasPrefix(removedPrefix + "/") ? id : nil
+        }
+        for id in staleIDs {
+            flattenedFileItems.removeValue(forKey: id)
+            childrenMap.removeValue(forKey: id)
+        }
+
+        if fsEventStreams.indices.contains(index) {
+            fsEventStreams.remove(at: index).cancel()
+        }
+
+        observers.allObjects.forEach { observer in
+            (observer as? CEWorkspaceFileManagerObserver)?.fileManagerUpdated(updatedItems: [])
         }
     }
 
@@ -99,18 +202,28 @@ final class CEWorkspaceFileManager {
         if let file = flattenedFileItems[path] {
             return file
         } else if createIfNotFound {
-            guard let url = URL(string: path, relativeTo: folderUrl) else {
+            // 支持绝对路径与相对主根的路径两种写法。
+            let url: URL
+            if path.hasPrefix("/") {
+                url = URL(fileURLWithPath: path)
+            } else if let relative = URL(string: path, relativeTo: folderUrl) {
+                url = relative.standardizedFileURL
+            } else {
                 return nil
             }
 
-            // If file is not in the `folderUrl` or subdirectories, exit.
-            guard folderUrl.containsSubPath(url) else {
+            // 找到包含该路径的根目录。必须取「最长前缀」的根：嵌套根目录时
+            // （如 project 与 project/sub 同时是根），first(where:) 会命中外层根，
+            // 从错误的根向下钻取，最终查不到文件、点击改动文件无反应。
+            guard let root = rootUrls
+                .filter({ $0.containsSubPath(url) || $0.path == url.path })
+                .max(by: { $0.pathComponents.count < $1.pathComponents.count }) else {
                 return nil
             }
 
             // Drill down towards the file, indexing any directories needed.
-            let pathComponents = url.pathComponents.dropFirst(folderUrl.pathComponents.count)
-            var currentURL = folderUrl
+            let pathComponents = url.pathComponents.dropFirst(root.pathComponents.count)
+            var currentURL = root
 
             for component in pathComponents {
                 currentURL.append(component: component)
@@ -218,12 +331,13 @@ final class CEWorkspaceFileManager {
     /// This de-inits most functions in the ``CEWorkspaceFileManager``, so that in case it isn't de-init'd it does not
     /// use up significant amounts of RAM, and clears any file system event watchers.
     func cleanUp() {
-        fsEventStream?.cancel()
-        flattenedFileItems = [workspaceItem.id: workspaceItem]
+        fsEventStreams.forEach { $0.cancel() }
+        fsEventStreams.removeAll()
+        flattenedFileItems = Dictionary(rootItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     deinit {
-        fsEventStream?.cancel()
+        fsEventStreams.forEach { $0.cancel() }
         observers.removeAllObjects()
     }
 }

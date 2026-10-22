@@ -23,7 +23,7 @@ final class ProjectNavigatorMenu: NSMenu {
 
     init(_ sender: ProjectNavigatorViewController) {
         self.sender = sender
-        super.init(title: "Options")
+        super.init(title: NSLocalizedString("Options", comment: ""))
     }
 
     @available(*, unavailable)
@@ -38,9 +38,17 @@ final class ProjectNavigatorMenu: NSMenu {
     ///   - key: A `keyEquivalent` of the menu item. Defaults to an empty `String`
     /// - Returns: A `NSMenuItem` which has the target `self`
     private func menuItem(_ title: String, action: Selector?, key: String = "") -> NSMenuItem {
-        let mItem = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        // 原生 NSMenuItem 不参与 SwiftUI 的 LocalizedStringKey 查找，必须显式本地化。
+        let mItem = NSMenuItem(title: NSLocalizedString(title, comment: ""), action: action, keyEquivalent: key)
         mItem.target = self
 
+        return mItem
+    }
+
+    /// 创建标题已本地化的 `NSMenuItem`（用于需要格式化的标题，避免二次查找）。
+    private func localizedItem(_ title: String, action: Selector?) -> NSMenuItem {
+        let mItem = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        mItem.target = self
         return mItem
     }
 
@@ -71,18 +79,24 @@ final class ProjectNavigatorMenu: NSMenu {
 
         let rename = menuItem("Rename", action: #selector(renameFile))
 
-        let trash = menuItem("Move to Trash", action:
-                                item.url != workspace?.workspaceFileManager?.folderUrl
-                              ? #selector(trash) : nil)
+        // 任意一个根目录都不允许被移入废纸篓或立即删除，否则会把整个项目从工作区移除。
+        // 多根工作区下必须用「是否属于根集合」判断，而不是只比较主根。
+        let isRootItem = workspace?.workspaceFileManager?.rootItems.contains(item) ?? false
+
+        let trash = menuItem("Move to Trash", action: isRootItem ? nil : #selector(trash))
 
         // trash has to be the previous menu item for delete.isAlternate to work correctly
-        let delete = menuItem("Delete Immediately...", action:
-                                item.url != workspace?.workspaceFileManager?.folderUrl
-                              ? #selector(delete) : nil)
+        let delete = menuItem("Delete Immediately...", action: isRootItem ? nil : #selector(delete))
         delete.keyEquivalentModifierMask = .option
         delete.isAlternate = true
 
-        let duplicate = menuItem("Duplicate \(item.isFolder ? "Folder" : "File")", action: #selector(duplicate))
+        let duplicate = localizedItem(
+            String(
+                format: NSLocalizedString("Duplicate %@", comment: ""),
+                NSLocalizedString(item.isFolder ? "Folder" : "File", comment: "")
+            ),
+            action: #selector(duplicate)
+        )
 
         let sortByName = menuItem("Sort by Name", action: nil)
         sortByName.isEnabled = item.isFolder
@@ -131,13 +145,21 @@ final class ProjectNavigatorMenu: NSMenu {
             ]
         )
 
+        // 附加根目录可以移出工作区；主根不提供该操作，否则窗口会失去所属项目。
+        if let manager = workspace?.workspaceFileManager,
+           manager.rootItems.contains(item),
+           item.url.standardizedFileURL.path != manager.folderUrl.standardizedFileURL.path {
+            items.append(NSMenuItem.separator())
+            items.append(menuItem("Remove Folder from Workspace", action: #selector(removeRootFromWorkspace)))
+        }
+
         setSubmenu(openAsMenu(item: item), for: openAs)
         setSubmenu(sourceControlMenu(item: item), for: sourceControl)
     }
 
     /// Submenu for **Open As** menu item.
     private func openAsMenu(item: CEWorkspaceFile) -> NSMenu {
-        let openAsMenu = NSMenu(title: "Open As")
+        let openAsMenu = NSMenu(title: NSLocalizedString("Open As", comment: ""))
         func getMenusItems() -> ([NSMenuItem], [NSMenuItem]) {
             // Use UTType to distinguish between bundle file and user-browsable directory
             // The isDirectory property is not accurate on this.
@@ -153,13 +175,13 @@ final class ProjectNavigatorMenu: NSMenu {
                 primaryItems.append(.propertyList())
             }
             if type.conforms(to: UTType(filenameExtension: "xcassets")!) {
-                primaryItems.append(NSMenuItem(title: "Asset Catalog Document", action: nil, keyEquivalent: ""))
+                primaryItems.append(NSMenuItem(title: NSLocalizedString("Asset Catalog Document", comment: ""), action: nil, keyEquivalent: ""))
             }
             if type.conforms(to: UTType(filenameExtension: "xib")!) {
-                primaryItems.append(NSMenuItem(title: "Interface Builder XIB Document", action: nil, keyEquivalent: ""))
+                primaryItems.append(NSMenuItem(title: NSLocalizedString("Interface Builder XIB Document", comment: ""), action: nil, keyEquivalent: ""))
             }
             if type.conforms(to: UTType(filenameExtension: "xcodeproj")!) {
-                primaryItems.append(NSMenuItem(title: "Xcode Project", action: nil, keyEquivalent: ""))
+                primaryItems.append(NSMenuItem(title: NSLocalizedString("Xcode Project", comment: ""), action: nil, keyEquivalent: ""))
             }
             var secondaryItems = [NSMenuItem]()
             if type.conforms(to: .text) {
@@ -189,17 +211,20 @@ final class ProjectNavigatorMenu: NSMenu {
 
     /// Submenu for **Source Control** menu item.
     private func sourceControlMenu(item: CEWorkspaceFile) -> NSMenu {
-        let sourceControlMenu = NSMenu(title: "Source Control")
+        let sourceControlMenu = NSMenu(title: NSLocalizedString("Source Control", comment: ""))
         sourceControlMenu.addItem(
-            withTitle: "Commit \"\(String(describing: item.fileName()))\"...",
+            withTitle: String(
+                format: NSLocalizedString("Commit \"%@\"...", comment: ""),
+                String(describing: item.fileName())
+            ),
             action: nil,
             keyEquivalent: ""
         )
         sourceControlMenu.addItem(.separator())
-        sourceControlMenu.addItem(withTitle: "Discard Changes...", action: nil, keyEquivalent: "")
+        sourceControlMenu.addItem(withTitle: NSLocalizedString("Discard Changes...", comment: ""), action: nil, keyEquivalent: "")
         sourceControlMenu.addItem(.separator())
-        sourceControlMenu.addItem(withTitle: "Add Selected Files", action: nil, keyEquivalent: "")
-        sourceControlMenu.addItem(withTitle: "Mark Selected Files as Resolved", action: nil, keyEquivalent: "")
+        sourceControlMenu.addItem(withTitle: NSLocalizedString("Add Selected Files", comment: ""), action: nil, keyEquivalent: "")
+        sourceControlMenu.addItem(withTitle: NSLocalizedString("Mark Selected Files as Resolved", comment: ""), action: nil, keyEquivalent: "")
 
         return sourceControlMenu
     }
@@ -213,28 +238,28 @@ final class ProjectNavigatorMenu: NSMenu {
 
 extension NSMenuItem {
     fileprivate static func none() -> NSMenuItem {
-        let item = NSMenuItem(title: "<None>", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: NSLocalizedString("<None>", comment: ""), action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item
     }
 
     fileprivate static func sourceCode() -> NSMenuItem {
-        NSMenuItem(title: "Source Code", action: nil, keyEquivalent: "")
+        NSMenuItem(title: NSLocalizedString("Source Code", comment: ""), action: nil, keyEquivalent: "")
     }
 
     fileprivate static func propertyList() -> NSMenuItem {
-        NSMenuItem(title: "Property List", action: nil, keyEquivalent: "")
+        NSMenuItem(title: NSLocalizedString("Property List", comment: ""), action: nil, keyEquivalent: "")
     }
 
     fileprivate static func asciiPropertyList() -> NSMenuItem {
-        NSMenuItem(title: "ASCII Property List", action: nil, keyEquivalent: "")
+        NSMenuItem(title: NSLocalizedString("ASCII Property List", comment: ""), action: nil, keyEquivalent: "")
     }
 
     fileprivate static func hex() -> NSMenuItem {
-        NSMenuItem(title: "Hex", action: nil, keyEquivalent: "")
+        NSMenuItem(title: NSLocalizedString("Hex", comment: ""), action: nil, keyEquivalent: "")
     }
 
     fileprivate static func quickLook() -> NSMenuItem {
-        NSMenuItem(title: "Quick Look", action: nil, keyEquivalent: "")
+        NSMenuItem(title: NSLocalizedString("Quick Look", comment: ""), action: nil, keyEquivalent: "")
     }
 }

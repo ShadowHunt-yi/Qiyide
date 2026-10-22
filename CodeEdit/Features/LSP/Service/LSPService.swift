@@ -264,19 +264,35 @@ final class LSPService: ObservableObject {
     /// Errors thrown in this method are logged and otherwise not handled.
     /// - Parameter workspacePath: The path of the workspace.
     func closeWorkspace(_ workspacePath: String) {
+        let normalizedPath = Self.normalizeWorkspacePath(workspacePath)
         Task {
-            let clientKeys = self.languageClients.filter({ $0.key.workspacePath == workspacePath })
+            // 比较归一化后的路径：工作区 URL 可能带尾部斜杠，语言服务器键值不一定带，
+            // 直接字符串比较会漏掉本应关闭的服务器，导致进程随窗口关闭而泄漏。
+            let clientKeys = self.languageClients.filter {
+                Self.normalizeWorkspacePath($0.key.workspacePath) == normalizedPath
+            }
             for (key, languageClient) in clientKeys {
                 do {
                     try await languageClient.shutdown()
                 } catch {
                     logger.error("Failed to shutdown \(key.languageId.rawValue) Language Server: Error \(error)")
                 }
+                // 停止事件监听任务，否则该任务会继续持有客户端，服务器进程无法真正释放。
+                self.stopListeningToEvents(for: key)
             }
             for (key, _) in clientKeys {
                 self.languageClients.removeValue(forKey: key)
             }
         }
+    }
+
+    /// 归一化工作区路径，消除尾部斜杠、`..` 等差异带来的键不匹配。
+    static func normalizeWorkspacePath(_ path: String) -> String {
+        var normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        while normalized.count > 1 && normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized
     }
 
     // MARK: - Stop Servers

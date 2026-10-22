@@ -39,7 +39,16 @@ final class WorkspaceDocument: NSDocument, ObservableObject, NSToolbarDelegate {
     var openQuicklyViewModel: OpenQuicklyViewModel?
     var commandsPaletteState: QuickActionsViewModel?
     var listenerModel: WorkspaceNotificationModel = .init()
-    var sourceControlManager: SourceControlManager?
+    /// 多根工作区下的 Git 仓库集合。每个根目录对应一个独立的 ``SourceControlManager``。
+    private(set) var sourceControlWorkspace: SourceControlWorkspace?
+
+    /// 当前展示的仓库。
+    ///
+    /// 该属性保持为计算属性，使既有的 `workspace.sourceControlManager` 调用点无需改动，
+    /// 同时在用户切换仓库时自动指向新的管理器。
+    var sourceControlManager: SourceControlManager? {
+        sourceControlWorkspace?.activeManager
+    }
 
     var taskManager: TaskManager?
     var workspaceSettingsManager: CEWorkspaceSettings?
@@ -142,22 +151,43 @@ final class WorkspaceDocument: NSDocument, ObservableObject, NSToolbarDelegate {
         self.fileURL = url
         self.displayName = url.lastPathComponent
 
-        let sourceControlManager = SourceControlManager(
-            workspaceURL: url,
-            editorManager: editorManager!
-        )
+        let sourceControlWorkspace = SourceControlWorkspace()
+        self.sourceControlWorkspace = sourceControlWorkspace
+
+        // 先读取工作区设置，其中的 `additionalRoots` 决定这是一个单根还是多根工作区。
+        // 设置必须先于文件管理器创建，否则首帧无法显示附加根目录。
+        let settingsManager = CEWorkspaceSettings(workspaceURL: url)
+        self.workspaceSettingsManager = settingsManager
+
+        let additionalRootUrls = settingsManager.settings.project.additionalRoots
+            .map { URL(fileURLWithPath: $0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
 
         self.workspaceFileManager = .init(
-            folderUrl: url,
+            rootUrls: [url] + additionalRootUrls,
             ignoredFilesAndFolders: Set(ignoredFilesAndDirectory),
-            sourceControlManager: sourceControlManager
+            sourceControlManager: nil
         )
-        self.sourceControlManager = sourceControlManager
-        sourceControlManager.fileManager = workspaceFileManager
+
+        // 为每个根目录建立独立的 Git 仓库，并把文件管理器接回各仓库。
+        sourceControlWorkspace.sync(
+            roots: workspaceFileManager?.rootUrls ?? [url],
+            editorManager: editorManager!,
+            fileManager: workspaceFileManager
+        )
+        workspaceFileManager?.sourceControlManager = sourceControlWorkspace.primaryManager
+        workspaceFileManager?.sourceControlWorkspace = sourceControlWorkspace
+
+        // 仓库集合的变化需要传递给窗口（切换仓库、改动数变化）。
+        sourceControlWorkspace.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         self.searchState = .init(self)
-        self.openQuicklyViewModel = .init(fileURL: url)
+        self.openQuicklyViewModel = .init(fileURLs: workspaceFileManager?.rootUrls ?? [url])
         self.commandsPaletteState = .init()
-        self.workspaceSettingsManager = CEWorkspaceSettings(workspaceURL: url)
         if let workspaceSettingsManager {
             self.taskManager = TaskManager(
                 workspaceSettings: workspaceSettingsManager.settings,
@@ -169,6 +199,69 @@ final class WorkspaceDocument: NSDocument, ObservableObject, NSToolbarDelegate {
         workspaceFileManager?.addObserver(undoRegistration)
         editorManager?.restoreFromState(self)
         utilityAreaModel?.restoreFromState(self)
+    }
+
+    // MARK: - 多根工作区
+
+    /// 将文件夹加入当前窗口的工作区，使其出现在项目导航器中，并与主根共享同一个窗口。
+    ///
+    /// 主根（`fileURL`）不参与该数组；附加根会持久化到 `.qiyide/settings.json`，
+    /// 下次打开同一工作区时自动恢复。
+    /// - Parameter urls: 要加入的文件夹，非目录或已存在的项会被忽略。
+    func addRootFolders(_ urls: [URL]) {
+        guard let workspaceFileManager, let settingsManager = workspaceSettingsManager else { return }
+
+        var changed = false
+        for url in urls {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                continue
+            }
+
+            let standardized = url.standardizedFileURL
+            workspaceFileManager.addRoot(standardized)
+
+            if !settingsManager.settings.project.additionalRoots.contains(standardized.path) {
+                settingsManager.settings.project.additionalRoots.append(standardized.path)
+                changed = true
+            }
+        }
+
+        // 无论设置是否有变化，都要让 Git 仓库集合跟上新的根目录列表。
+        syncSourceControlWorkspace()
+
+        guard changed else { return }
+        // `additionalRoots` 位于引用类型内部，`$settings` 不会自动收到通知，这里显式落盘。
+        try? settingsManager.savePreferences()
+        // 让「快速打开」覆盖到新加入的根目录。
+        self.openQuicklyViewModel = .init(fileURLs: workspaceFileManager.rootUrls)
+    }
+
+    /// 从当前工作区移除一个附加根目录（不删除磁盘内容）。
+    func removeRootFolder(_ url: URL) {
+        guard let workspaceFileManager, let settingsManager = workspaceSettingsManager else { return }
+        let standardized = url.standardizedFileURL
+
+        // 主根不允许移除，否则窗口将失去所属项目。
+        guard standardized.path != self.fileURL?.standardizedFileURL.path else { return }
+
+        workspaceFileManager.removeRoot(standardized)
+        syncSourceControlWorkspace()
+        settingsManager.settings.project.additionalRoots.removeAll { $0 == standardized.path }
+        try? settingsManager.savePreferences()
+        self.openQuicklyViewModel = .init(fileURLs: workspaceFileManager.rootUrls)
+    }
+
+    /// 让 Git 仓库集合与当前根目录列表保持一致。
+    private func syncSourceControlWorkspace() {
+        guard let workspaceFileManager, let editorManager, let sourceControlWorkspace else { return }
+        sourceControlWorkspace.sync(
+            roots: workspaceFileManager.rootUrls,
+            editorManager: editorManager,
+            fileManager: workspaceFileManager
+        )
+        workspaceFileManager.sourceControlWorkspace = sourceControlWorkspace
     }
 
     override func read(from url: URL, ofType typeName: String) throws {
@@ -185,13 +278,15 @@ final class WorkspaceDocument: NSDocument, ObservableObject, NSToolbarDelegate {
         utilityAreaModel?.saveRestorationState(self)
 
         cancellables.forEach({ $0.cancel() })
+        cancellables.removeAll()
         statusBarViewModel = nil
         utilityAreaModel = nil
         searchState = nil
         editorManager = nil
         openQuicklyViewModel = nil
         commandsPaletteState = nil
-        sourceControlManager = nil
+        sourceControlWorkspace?.clear()
+        sourceControlWorkspace = nil
         workspaceFileManager?.cleanUp()
         workspaceFileManager = nil
         workspaceSettingsManager?.cleanUp()

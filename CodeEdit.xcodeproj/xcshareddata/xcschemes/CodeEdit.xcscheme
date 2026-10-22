@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "B658FB2B27DA9E0F00EA4DBD"
-               BuildableName = "CodeEdit.app"
+               BuildableName = "Qiyide.app"
                BlueprintName = "CodeEdit"
                ReferencedContainer = "container:CodeEdit.xcodeproj">
             </BuildableReference>
@@ -133,7 +133,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "B658FB2B27DA9E0F00EA4DBD"
-            BuildableName = "CodeEdit.app"
+            BuildableName = "Qiyide.app"
             BlueprintName = "CodeEdit"
             ReferencedContainer = "container:CodeEdit.xcodeproj">
          </BuildableReference>
@@ -150,7 +150,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "B658FB2B27DA9E0F00EA4DBD"
-            BuildableName = "CodeEdit.app"
+            BuildableName = "Qiyide.app"
             BlueprintName = "CodeEdit"
             ReferencedContainer = "container:CodeEdit.xcodeproj">
          </BuildableReference>

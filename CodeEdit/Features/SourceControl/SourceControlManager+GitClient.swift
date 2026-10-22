@@ -5,6 +5,7 @@
 //  Created by Austin Condiff on 7/2/24.
 //
 
+import AppKit
 import Foundation
 
 extension SourceControlManager {
@@ -50,6 +51,78 @@ extension SourceControlManager {
         try await gitClient.checkoutBranch(from, newName: name)
         await refreshBranches()
         await refreshCurrentBranch()
+    }
+
+    // MARK: - Diff
+
+    /// 获取改动文件相对 `HEAD` 的差异行，用于差异视图。
+    /// - Parameter file: 改动列表中的文件。
+    func diff(for file: GitChangedFile) async throws -> [GitClient.DiffRow] {
+        try await gitClient.diffAgainstHead(
+            for: file.fileURL,
+            isUntracked: file.anyStatus() == .untracked
+        )
+    }
+
+    // MARK: - Merge
+
+    /// 把指定分支合并到当前分支。
+    ///
+    /// 冲突时 `git merge` 以非零状态退出，这里先刷新改动列表（冲突文件会以 `U` 出现），
+    /// 再把错误抛给调用方，由 ``handleMergeFailure(_:)`` 决定如何提示。
+    func merge(branch: GitBranch) async throws {
+        do {
+            try await gitClient.merge(branch: branch.name)
+        } catch {
+            await refreshAllChangedFiles()
+            throw error
+        }
+        await refreshAllChangedFiles()
+        await refreshNumberOfUnsyncedCommits()
+        await refreshCurrentBranch()
+    }
+
+    /// 中止进行中的合并，恢复到合并前状态。
+    func abortMerge() async throws {
+        try await gitClient.abortMerge()
+        await refreshAllChangedFiles()
+        await refreshCurrentBranch()
+    }
+
+    /// 是否存在未合并（冲突）的文件。
+    func hasMergeConflicts() async -> Bool {
+        let conflicted = await gitClient.conflictedFiles()
+        return !conflicted.isEmpty
+    }
+
+    /// 处理合并失败：有冲突时列出冲突文件并提供「中止合并」，否则退回普通错误提示。
+    func handleMergeFailure(_ error: Error) async {
+        let conflicts = await gitClient.conflictedFiles()
+        guard !conflicts.isEmpty else {
+            await showAlertForError(title: NSLocalizedString("Merge failed", comment: ""), error: error)
+            return
+        }
+
+        let fileList = conflicts
+            .prefix(8)
+            .map { URL(filePath: $0).lastPathComponent }
+            .joined(separator: "\n")
+        let suffix = conflicts.count > 8 ? "\n…" : ""
+        let hint = NSLocalizedString("Resolve the conflicts below and commit, or abort the merge.", comment: "")
+
+        let shouldAbort = await MainActor.run { () -> Bool in
+            let alert = NSAlert()
+            alert.messageText = NSLocalizedString("Merge Conflicts", comment: "")
+            alert.informativeText = hint + "\n\n" + fileList + suffix
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: NSLocalizedString("Abort Merge", comment: ""))
+            alert.addButton(withTitle: NSLocalizedString("Later", comment: ""))
+            return alert.runModal() == .alertFirstButtonReturn
+        }
+
+        if shouldAbort {
+            try? await abortMerge()
+        }
     }
 
     /// Rename branch
@@ -147,8 +220,14 @@ extension SourceControlManager {
             updatedStatusFor.insert(file)
         }
 
+        // 只清理本仓库范围内的状态。
+        // 多根工作区下若清理整个文件树，会抹掉其它仓库刚写入的 Git 状态标记。
+        let rootPath = workspaceURL.standardizedFileURL.path
         for (_, file) in fileManager.flattenedFileItems
-        where !updatedStatusFor.contains(file) && file.gitStatus != nil {
+        where !updatedStatusFor.contains(file)
+            && file.gitStatus != nil
+            && (file.url.standardizedFileURL.path == rootPath
+                || file.url.standardizedFileURL.path.hasPrefix(rootPath + "/")) {
             file.gitStatus = nil
             updatedStatusFor.insert(file)
         }
@@ -165,10 +244,8 @@ extension SourceControlManager {
         do {
             let status = try await gitClient.getStatus()
 
-            // TODO: Unmerged changes
-            // status.unmergedChanges
-
-            await setChangedFiles(status.changedFiles + status.untrackedFiles)
+            // 冲突文件（未合并）也要进入列表，否则合并失败后用户在面板里看不到任何东西。
+            await setChangedFiles(status.changedFiles + status.untrackedFiles + status.unmergedChanges)
             await refreshStatusInFileManager()
         } catch GitClient.GitClientError.notGitRepository {
             await setChangedFiles([])

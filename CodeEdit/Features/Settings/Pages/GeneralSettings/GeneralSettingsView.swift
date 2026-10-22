@@ -23,7 +23,7 @@ struct GeneralSettingsView: View {
 
     init() {
         guard let defaults = UserDefaults.init(
-            suiteName: "app.codeedit.CodeEdit.shared"
+            suiteName: "app.qiyide.Qiyide.shared"
         ) else {
             print("Failed to get/init shared defaults")
             return
@@ -238,7 +238,7 @@ private extension GeneralSettingsView {
     }
 
     var shellCommand: some View {
-        LabeledContent("'codeedit' Shell Command") {
+        LabeledContent("'qiyide' Shell Command") {
             Button(action: installShellCommand, label: {
                 Text("Install")
             })
@@ -286,20 +286,26 @@ private extension GeneralSettingsView {
                 Button("Check Now") {
                     updater.checkForUpdates()
                 }
+                .disabled(!SoftwareUpdater.isAvailable)
             } label: {
                 Text("Check for updates")
-                Text("Last checked: \(lastUpdatedString)")
-
+                if SoftwareUpdater.isAvailable {
+                    Text("Last checked: \(lastUpdatedString)")
+                } else {
+                    Text("Updates are disabled in this build. Configure an appcast feed to enable them.")
+                }
             }
         }
     }
 
     var autoUpdateToggle: some View {
         Toggle("Automatically check for app updates", isOn: $updater.automaticallyChecksForUpdates)
+            .disabled(!SoftwareUpdater.isAvailable)
     }
 
     var prereleaseToggle: some View {
         Toggle("Include pre-release versions", isOn: $updater.includePrereleaseVersions)
+            .disabled(!SoftwareUpdater.isAvailable)
     }
 
     var autoSave: some View {
@@ -349,10 +355,10 @@ private extension GeneralSettingsView {
     }
 
     var openInCodeEditToggle: some View {
-        Toggle("Show “Open With CodeEdit” option in Finder", isOn: $openInCodeEdit)
+        Toggle("Show “Open With Qiyide” option in Finder", isOn: $openInCodeEdit)
             .onChange(of: openInCodeEdit) { _, newValue in
                 guard let defaults = UserDefaults.init(
-                    suiteName: "app.codeedit.CodeEdit.shared"
+                    suiteName: "app.qiyide.Qiyide.shared"
                 ) else {
                     print("Failed to get/init shared defaults")
                     return

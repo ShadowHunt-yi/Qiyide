@@ -146,9 +146,25 @@ struct EditorTabBarContextMenu: ViewModifier {
     /// Copies the relative path from the workspace folder to the given file item to the pasteboard.
     /// - Parameter item: The `FileItem` to use.
     private func copyRelativePath(item: CEWorkspaceFile) {
-        guard let rootPath = workspace.workspaceFileManager?.folderUrl else {
+        guard let manager = workspace.workspaceFileManager else {
             return
         }
+
+        // 多根工作区下用文件所属根目录作为基准，输出 `<根名>/相对路径`。
+        if manager.rootUrls.count > 1,
+           let root = manager.rootUrls.first(where: {
+               $0.path == item.url.standardizedFileURL.path || $0.containsSubPath(item.url)
+           }) {
+            let relative = item.url.standardizedFileURL.pathComponents
+                .dropFirst(root.pathComponents.count)
+                .joined(separator: "/")
+            let value = relative.isEmpty ? root.lastPathComponent : "\(root.lastPathComponent)/\(relative)"
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(value, forType: .string)
+            return
+        }
+
+        let rootPath = manager.folderUrl
         let destinationComponents = item.url.standardizedFileURL.pathComponents
         let baseComponents = rootPath.standardizedFileURL.pathComponents
 

@@ -179,7 +179,8 @@ struct SourceControlNavigatorRepositoryView: View {
         } message: {
             Text("The remote will be removed from the repository. You can’t undo this action.")
         }
-        .task {
+        // 切换仓库时重新加载该仓库的分支数据。
+        .task(id: sourceControlManager.workspaceURL.path) {
             await sourceControlManager.refreshBranches()
         }
     }

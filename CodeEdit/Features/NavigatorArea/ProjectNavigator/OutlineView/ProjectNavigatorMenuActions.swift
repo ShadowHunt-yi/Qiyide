@@ -261,11 +261,25 @@ extension ProjectNavigatorMenu {
     /// Copies the relative path of the selected files
     @objc
     func copyRelativePath() {
-        guard let rootPath = workspace?.workspaceFileManager?.folderUrl else {
+        guard let manager = workspace?.workspaceFileManager else {
             return
         }
-        let paths = selectedItems().map {
-            let destinationComponents = $0.url.standardizedFileURL.pathComponents
+        let rootPath = manager.folderUrl
+        let isMultiRoot = manager.rootUrls.count > 1
+
+        let paths = selectedItems().map { item -> String in
+            // 多根工作区下，不同根之间没有共同的相对基准，改为输出 `<根目录名>/相对路径`。
+            if isMultiRoot,
+               let root = manager.rootUrls.first(where: {
+                   $0.path == item.url.standardizedFileURL.path || $0.containsSubPath(item.url)
+               }) {
+                let relative = item.url.standardizedFileURL.pathComponents
+                    .dropFirst(root.pathComponents.count)
+                    .joined(separator: "/")
+                return relative.isEmpty ? root.lastPathComponent : "\(root.lastPathComponent)/\(relative)"
+            }
+
+            let destinationComponents = item.url.standardizedFileURL.pathComponents
             let baseComponents = rootPath.standardizedFileURL.pathComponents
 
             // Find common prefix length
@@ -282,6 +296,14 @@ extension ProjectNavigatorMenu {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(paths, forType: .string)
+    }
+
+    /// 将一个附加根目录移出当前工作区（不删除磁盘内容）。
+    @objc
+    func removeRootFromWorkspace() {
+        guard let item, let workspace else { return }
+        workspace.removeRootFolder(item.url)
+        reloadData()
     }
 
     private func reloadData() {

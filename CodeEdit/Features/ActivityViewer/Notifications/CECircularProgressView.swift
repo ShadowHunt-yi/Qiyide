@@ -58,7 +58,9 @@ struct CECircularProgressView: View {
     }
 }
 
-#Preview {
+#if DEBUG
+struct CECircularProgressView_Previews: PreviewProvider {
+    static var previews: some View {
     Group {
         CECircularProgressView(currentTaskCount: 1)
             .frame(width: 22, height: 22)
@@ -68,3 +70,5 @@ struct CECircularProgressView: View {
     }
     .padding()
 }
+}
+#endif

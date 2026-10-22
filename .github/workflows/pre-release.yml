@@ -59,11 +59,11 @@ jobs:
         run: |
           REV=$(git rev-parse --short HEAD)
           echo "REV=$REV" >> $GITHUB_ENV
-          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.codeedit.CodeEdit. --force --timestamp "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/CodeEdit.app/Contents/Frameworks/CodeEditKit.framework"
-          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.codeedit.CodeEdit. --force --timestamp "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/CodeEdit.app/Contents/Frameworks/CodeLanguages_Container.framework"
-          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.codeedit.CodeEdit. --force --deep --timestamp "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/CodeEdit.app/Contents/Frameworks/Sparkle.framework"
-          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.codeedit.CodeEdit. --force --timestamp --entitlements "$RUNNER_TEMP/../CodeEdit/CodeEdit/OpenWithCodeEdit/OpenWithCodeEdit.entitlements" "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/CodeEdit.app/Contents/PlugIns/OpenWithCodeEdit.appex"
-          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.codeedit.CodeEdit. --force --timestamp "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/CodeEdit.app"
+          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.qiyide.Qiyide. --force --timestamp "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/Qiyide.app/Contents/Frameworks/CodeEditKit.framework"
+          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.qiyide.Qiyide. --force --timestamp "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/Qiyide.app/Contents/Frameworks/CodeLanguages_Container.framework"
+          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.qiyide.Qiyide. --force --deep --timestamp "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/Qiyide.app/Contents/Frameworks/Sparkle.framework"
+          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.qiyide.Qiyide. --force --timestamp --entitlements "$RUNNER_TEMP/../CodeEdit/CodeEdit/OpenWithCodeEdit/OpenWithCodeEdit.entitlements" "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/Qiyide.app/Contents/PlugIns/OpenWithQiyide.appex"
+          codesign --sign "$CODESIGN_SIGN" -vvv --verbose --strict --options=runtime --prefix app.qiyide.Qiyide. --force --timestamp "$RUNNER_TEMP/CodeEdit.xcarchive/Products/Applications/Qiyide.app"
 
       ############################
       # DMG & Notarize
@@ -90,8 +90,8 @@ jobs:
             --window-size 699 518 \
             --background "$RUNNER_TEMP/.background.png" \
             --icon-size 128 \
-            --icon "CodeEdit.app" 170 210 \
-            --hide-extension "CodeEdit.app" \
+            --icon "Qiyide.app" 170 210 \
+            --hide-extension "Qiyide.app" \
             --app-drop-link 530 210 \
             --codesign "$CODESIGN_SIGN" \
             --notarize "CodeEdit" \

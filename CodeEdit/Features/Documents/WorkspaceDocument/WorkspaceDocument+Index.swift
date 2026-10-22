@@ -12,7 +12,9 @@ extension WorkspaceDocument.SearchState {
     /// That means that the contents of the workspace will be indexed and searchable.
     func addProjectToIndex() {
         guard let indexer = indexer else { return }
-        guard let url = workspace.fileURL else { return }
+        // 多根工作区：索引全部根目录，保证搜索能覆盖所有被管理的项目。
+        let rootURLs = workspace.workspaceFileManager?.rootUrls ?? []
+        guard !rootURLs.isEmpty else { return }
 
         indexStatus = .indexing(progress: 0.0)
         let uuidString = UUID().uuidString
@@ -26,7 +28,7 @@ extension WorkspaceDocument.SearchState {
         NotificationCenter.default.post(name: .taskNotification, object: nil, userInfo: createInfo)
 
         Task.detached {
-            let filePaths = self.getFileURLs(at: url)
+            let filePaths = rootURLs.flatMap { self.getFileURLs(at: $0) }
 
             let asyncController = SearchIndexer.AsyncManager(index: indexer)
             var lastProgress: Double = 0

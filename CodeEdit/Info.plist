@@ -6,6 +6,11 @@
 	<string>${CE_VERSION_POSTFIX}</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -1259,6 +1264,8 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Qiyide</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -1270,7 +1277,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>codeedit</string>
+				<string>qiyide</string>
 			</array>
 		</dict>
 	</array>
@@ -1284,9 +1291,5 @@
 	<true/>
 	<key>SUEnableJavaScript</key>
 	<true/>
-	<key>SUFeedURL</key>
-	<string>https://github.com/CodeEditApp/CodeEdit/releases/latest/download/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>/vAnxnK9wj4IqnUt6wS9EN3Ug69zHb+S/Pb9CyZuwa0=</string>
 </dict>
 </plist>

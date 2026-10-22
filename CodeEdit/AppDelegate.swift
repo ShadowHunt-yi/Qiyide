@@ -23,7 +23,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationDidFinishLaunching(_ notification: Notification) {
         enableWindowSizeSaveOnQuit()
         Settings.shared.preferences.general.appAppearance.applyAppearance()
+
+        // 显式设置应用图标。
+        // 应用以 ad-hoc 签名、且不在 /Applications 下运行时，部分系统界面（如台前调度的应用条）
+        // 可能解析不到 bundle 图标而退回通用占位图；直接从 bundle 的 icns 载入可以绕开这条路径。
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApp.applicationIconImage = icon
+        }
+
         checkForFilesToOpen()
+
+        // 内存基线探针：仅在显式开启时工作，用于 M0 基线与优化回归对比。
+        if MemoryProbe.isEnabled {
+            MemoryProbe.shared.start()
+        }
 
         NSApp.closeWindow(.welcome, .about)
 
@@ -206,10 +220,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         return true
     }
 
-    // MARK: - Open With CodeEdit (Extension) functions
+    // MARK: - Open With Qiyide (Extension) functions
     private func checkForFilesToOpen() {
         guard let defaults = UserDefaults.init(
-            suiteName: "app.codeedit.CodeEdit.shared"
+            suiteName: "app.qiyide.Qiyide.shared"
         ) else {
             print("Failed to get/init shared defaults")
             return

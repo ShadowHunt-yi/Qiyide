@@ -46,6 +46,10 @@ struct SearchField: NSViewRepresentable {
     }
 }
 
-#Preview {
+#if DEBUG
+struct SearchField_Previews: PreviewProvider {
+    static var previews: some View {
     SearchField("Search", text: .constant("Test"))
 }
+}
+#endif
