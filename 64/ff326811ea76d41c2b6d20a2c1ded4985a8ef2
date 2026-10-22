@@ -1,0 +1,168 @@
+CodeEdit/Features/LSP/Registry/PackageManagers/Sources/GithubPackageManager.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 55
+CodeEdit/Features/Feedback/FeedbackView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 81,165,205
+CodeEdit/Features/Settings/Pages/TextEditingSettings/InvisiblesSettingsView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 98
+CodeEdit/Features/Settings/Models/SettingsData.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 15
+scripts/verify/workspace-core/run.sh
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-34
+CodeEdit/AppDelegate.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 37-41,223,226
+CodeEdit/Features/Settings/Views/WarningCharactersView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 26
+CodeEdit/Features/SourceControl/Views/SourceControlFetchView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 30
+CodeEdit/Features/Settings/SoftwareUpdater.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 12-29,50-51,53,55,61-68,102-103,107
+CodeEdit/Features/StatusBar/Views/StatusBarItems/StatusBarMemoryLabel.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-37
+CodeEdit/Features/Workspace/Models/Workspace.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-86
+OpenWithCodeEdit/Info.plist
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 8
+CodeEdit/Features/Workspace/Models/JSONValue.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-121
+CodeEdit.xcodeproj/project.pbxproj
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 425,445,692-693,725,729,752,787,893-894,926,930,953,988,1023,1058,1166-1167,1199,1203,1226,1261,1439-1440,1483-1484,1516,1520,1543,1547,1570,1599,1802-1804,1822-1824,1923,1948
+OpenWithCodeEdit/OpenWithCodeEdit.entitlements
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 7
+Configs/Debug.xcconfig
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 13
+CodeEdit/Features/CEWorkspaceSettings/Models/CEWorkspaceSettings.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 25,45,54
+CodeEdit/Features/Settings/Pages/ThemeSettings/Models/ThemeModel.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 27,29
+scripts/memory/baseline.sh
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-68
+CodeEdit/Features/Settings/Models/Settings.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 50,66,79,83,88
+AppCast/_config.yml
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 16
+CodeEdit/Features/LSP/Registry/PackageManagers/Sources/PipPackageManager.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 94
+CodeEdit/Features/Settings/Pages/ThemeSettings/Models/ThemeModel+CRUD.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 28,33,35,270,273
+CodeEdit/Features/Settings/Pages/Extensions/LanguageServersView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 68-69
+CodeEdit/Features/StatusBar/Views/StatusBarView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 68-71
+Configs/Beta.xcconfig
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 13
+docs/customization/IMPLEMENTATION_PLAN.md
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-445
+CodeEdit/Features/Editor/Models/Restoration/EditorStateRestoration.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 74
+CodeEdit/Utils/Memory/MemoryProbe.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-161
+Configs/Pre.xcconfig
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 13
+CodeEdit/Features/Settings/Pages/SearchSettings/Models/SearchSettingsModel.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 30,32
+CodeEdit/Features/Settings/Pages/AccountsSettings/AccountsSettingsDetailsView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 142
+CodeEdit/Info.plist
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 9-13,1267-1268,1280
+.workbuddy/backup/project.pbxproj.prerename.bak
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-1988
+CodeEdit.xcodeproj/xcshareddata/xcschemes/OpenWithCodeEdit.xcscheme
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 34,65,84
+CodeEdit/Features/Workspace/WorkspaceStore.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-190
+scripts/memory/make-fixture.sh
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-34
+CodeEdit/Features/Settings/Pages/TerminalSettings/TerminalSettingsView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 98
+CodeEdit/Features/WindowCommands/HelpCommands.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 13
+CodeEdit/Localization/zh-Hans.lproj/Localizable.strings
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-507
+  s_df5e26d5aeb794::t_058a6271c9e236 508-510
+CodeEdit/Features/LSP/Registry/PackageManagers/Sources/GolangPackageManager.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 44,96
+CodeEdit/Features/LSP/Registry/PackageManagers/Sources/NPMPackageManager.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 41,118
+.workbuddy/backup/project.pbxproj.20261022.bak
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-1995
+CodeEdit/Features/About/AboutSubtitleView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 27
+Configs/Alpha.xcconfig
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 13
+.workbuddy/backup/CodeEditSourceEditor-Package.swift.20261022.bak
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-72
+docs/customization/EXECUTION_REPORT.md
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-181
+CodeEdit/Features/CEWorkspace/Models/CEWorkspaceFile.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 226
+docs/customization/REBRAND.md
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-143
+CodeEdit/Features/Feedback/Controllers/FeedbackWindowController.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 15
+CodeEdit/Features/CEWorkspace/Models/CEWorkspaceFileManager+Error.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 25
+CodeEdit/Features/LSP/Registry/PackageManagers/Sources/CargoPackageManager.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 63
+CodeEdit/Features/Settings/Pages/GeneralSettings/Models/GeneralSettings.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 44-45
+CodeEdit.xcodeproj/xcshareddata/xcschemes/CodeEdit.xcscheme
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 18,136,153
+scripts/verify/workspace-core/main.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-121
+CodeEdit/Features/WindowCommands/MainCommands.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 17
+CodeEdit/Features/Settings/Pages/GeneralSettings/GeneralSettingsView.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 26,241,289,292-296,303,308,358,361
+Configs/Release.xcconfig
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 13
+CodeEdit/Features/WindowCommands/WindowCommands.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 16,21
+CodeEdit/CodeEdit.entitlements
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 15
+.github/workflows/pre-release.yml
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 62-66,93-94
+CodeEdit/Features/LSP/Service/LSPService.swift
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 267,269-273,280-281,289-295
+  s_df5e26d5aeb794::t_4735bc576aa3fd 296-297
+.workbuddy/memory/2026-10-22.md
+  s_df5e26d5aeb794::t_4045fe14c1b0b4 1-44
+  s_df5e26d5aeb794::t_d709451f84612c 45-47
+CodeEdit/Features/CEWorkspace/Models/CEWorkspaceFileManager+DirectoryEvents.swift
+  s_df5e26d5aeb794::t_2089fa79b42330 56-61,63,65-67,70-97,100-104,107-111,114-132
+CodeEdit/Features/CEWorkspaceSettings/Models/CEWorkspaceSettingsData+ProjectSettings.swift
+  s_df5e26d5aeb794::t_495ffd3fc5b149 13-18,25,29
+CodeEdit/Features/CodeEditUI/Views/CEContentUnavailableView.swift
+  s_df5e26d5aeb794::t_54cdafb3eaca0b 37,40
+CodeEdit/Features/CodeEditUI/Views/ToolbarBranchPicker.swift
+  s_df5e26d5aeb794::t_a2ce1e19d6d7f6 15-21,31-33,35-36,39,63,95-102,119-122
+CodeEdit/Features/Documents/Controllers/CodeEditWindowController+Toolbar.swift
+  s_df5e26d5aeb794::t_7deef459cb719a 165,169-170
+CodeEdit/Features/Documents/WorkspaceDocument/WorkspaceDocument+Index.swift
+  s_df5e26d5aeb794::t_9729e06eeb86c3 15-17,31
+CodeEdit/Features/NavigatorArea/ProjectNavigator/OutlineView/ProjectNavigatorMenuActions.swift
+  s_df5e26d5aeb794::t_26cc893a5cb7b0 264,267-282,301-308
+CodeEdit/Features/NavigatorArea/ProjectNavigator/OutlineView/ProjectNavigatorOutlineView.swift
+  s_df5e26d5aeb794::t_da8dae835146dc 95-103
+CodeEdit/Features/NavigatorArea/ProjectNavigator/OutlineView/ProjectNavigatorViewController.swift
+  s_df5e26d5aeb794::t_b107c0333861c6 28,30-38
+CodeEdit/Features/WindowCommands/FileCommands.swift
+  s_df5e26d5aeb794::t_c54a18dd9f79e6 92-103
+docs/customization/MULTIROOT_WORKSPACE.md
+  s_df5e26d5aeb794::t_910a743db12683 1-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "64ff326811ea76d41c2b6d20a2c1ded4985a8ef2",
+  "prompts": {},
+  "sessions": {
+    "s_df5e26d5aeb794": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47035f45-c64f-429d-a78e-0d408de7eba5",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
