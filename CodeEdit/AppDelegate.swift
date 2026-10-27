@@ -20,6 +20,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     @LazyService var lspService: LSPService
 
+    /// 进程内启动计时起点（AppDelegate 创建时刻），用于记录冷启动耗时。
+    private let launchStart = CFAbsoluteTimeGetCurrent()
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // 主线程看门狗：记录 >250ms 的界面停顿，用于事后定位卡顿。
+        PerformanceRecorder.shared.startWatchdogIfNeeded()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         enableWindowSizeSaveOnQuit()
         Settings.shared.preferences.general.appAppearance.applyAppearance()
@@ -33,6 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
 
         checkForFilesToOpen()
+
+        PerformanceRecorder.shared.record(
+            startedAt: launchStart,
+            category: .appLaunch,
+            meta: ["windows": "\(NSApp.windows.count)"]
+        )
 
         // 内存基线探针：仅在显式开启时工作，用于 M0 基线与优化回归对比。
         if MemoryProbe.isEnabled {
@@ -75,7 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
-
+        // 同步落盘：异步队列可能来不及执行就被系统回收。
+        PerformanceRecorder.shared.flush()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
