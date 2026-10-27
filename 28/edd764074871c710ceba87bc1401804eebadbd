@@ -1,0 +1,16 @@
+CodeEdit.xcodeproj/project.pbxproj
+  h_6984196a933a03 633,674,714,742,771,834,875,915,943,972,1007,1042,1106,1148,1188,1216,1245,1308,1381,1421,1465,1505,1532,1560,1589
+CodeEdit/Info.plist
+  h_6984196a933a03 9-10,1262-1266,1272,1285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "28edd764074871c710ceba87bc1401804eebadbd",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
