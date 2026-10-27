@@ -1,0 +1,24 @@
+CodeEdit/Features/Wiki/Service/DomainModelStore.swift
+  s_2a634cebefba24::t_3e65c90e4619f0 162-165,169-177,179-180
+CodeEdit/Features/Wiki/Service/DomainAnalyzer+Modules.swift
+  s_2a634cebefba24::t_3e65c90e4619f0 106-110
+  s_2a634cebefba24::t_eef2d172a977b4 1-105,111-112
+CodeEdit/Features/Wiki/Service/DomainAnalyzer.swift
+  s_2a634cebefba24::t_f74ac1dc037a99 110-112,122-125,134,231,256,292,298,307-309,653,773,776,819-823,835,838,885-894
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "b1cbb330bf88e834cd7d3b93c276bb4e4fd2c2a6",
+  "prompts": {},
+  "sessions": {
+    "s_2a634cebefba24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8abc42ef-5ae5-4718-a491-76f0985f2e7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "unknown"
+    }
+  }
+}

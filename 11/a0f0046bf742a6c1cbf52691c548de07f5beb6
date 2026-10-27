@@ -1,0 +1,59 @@
+CodeEdit/Features/Wiki/Service/StructureGit.swift
+  s_2a634cebefba24::t_d14a8115393e22 103-104
+  s_2a634cebefba24::t_b51a368f204da0 1-102,105-236
+CodeEdit/Features/Wiki/Models/MindMap.swift
+  s_2a634cebefba24::t_8e5d098e3b42ba 317-339
+CodeEdit/Features/Wiki/Service/StructureDecisionStore.swift
+  s_2a634cebefba24::t_d26834c974671f 14-16,43-44,59-74
+  s_2a634cebefba24::t_8e5d098e3b42ba 1-13,17-42,45-58,75-103
+CodeEdit/Features/Wiki/Service/StructureDiffBuilder.swift
+  s_2a634cebefba24::t_f2807089657468 1-124,130-134,136-138,140-156,158-160,162,164-165,167-222,224,246-368
+  s_2a634cebefba24::t_3831d4a64cffd6 125-129,139,157,161,163,166
+  s_2a634cebefba24::t_c7e0325c8fcf11 223,225-245
+  s_2a634cebefba24::t_d26834c974671f 135
+CodeEdit/Features/Wiki/Service/StructureDiffBuilder+Asks.swift
+  s_2a634cebefba24::t_b960aa5fe67c7a 1-26,30,32-100,102-107,118-163,165-169,171-179,181-184,186-236,238-374,380-396
+  s_2a634cebefba24::t_8e5d098e3b42ba 101,108-117
+  s_2a634cebefba24::t_57437dacc6009f 27-29,31,164,170,180,185,237
+  s_2a634cebefba24::t_64e5a8f1c92878 375-379
+CodeEdit/Features/Wiki/Models/StructureVerdict.swift
+  s_2a634cebefba24::t_d26834c974671f 65-66,73,77,96
+  s_2a634cebefba24::t_57437dacc6009f 1-64,67-72,74-76,78-95,97-108
+CodeEditTests/Features/Wiki/StructureDiffTests.swift
+  s_2a634cebefba24::t_64e5a8f1c92878 21-27,92-95,207-210,388-391,404-407
+  s_2a634cebefba24::t_09b35d2e976dcb 54,396
+  s_2a634cebefba24::t_c7e0325c8fcf11 340-361
+  s_2a634cebefba24::t_0f055b93bf8875 1-20,28-53,55-91,96-206,211-339,362-387,392-395,397-403,408-429
+CodeEditTests/Features/Wiki/StructureFactsTests.swift
+  s_2a634cebefba24::t_64e5a8f1c92878 175-178
+  s_2a634cebefba24::t_0f055b93bf8875 1-174,179-181
+CodeEdit/Features/Wiki/Service/DomainModelStore.swift
+  s_2a634cebefba24::t_8e5d098e3b42ba 212-216
+CodeEdit/Features/Wiki/Service/JavaSignature.swift
+  s_2a634cebefba24::t_f2807089657468 44
+  s_2a634cebefba24::t_292e80f261a954 1-43,45-119
+CodeEdit/Features/Wiki/Service/StructureFacts.swift
+  s_2a634cebefba24::t_38737a66fdb31e 1-140,143-247
+  s_2a634cebefba24::t_d14a8115393e22 141-142
+CodeEdit/Features/Wiki/Models/StructureDiff.swift
+  s_2a634cebefba24::t_d26834c974671f 194-195
+  s_2a634cebefba24::t_8e5d098e3b42ba 161-169
+  s_2a634cebefba24::t_3831d4a64cffd6 177-182,211-212
+  s_2a634cebefba24::t_59e1ba75d6c4dc 1-160,170-176,183-193,196-210,213-284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "11a0f0046bf742a6c1cbf52691c548de07f5beb6",
+  "prompts": {},
+  "sessions": {
+    "s_2a634cebefba24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8abc42ef-5ae5-4718-a491-76f0985f2e7e",
+        "model": "unknown"
+      },
+      "human_author": "unknown"
+    }
+  }
+}

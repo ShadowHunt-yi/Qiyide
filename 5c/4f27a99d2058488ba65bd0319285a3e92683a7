@@ -1,0 +1,50 @@
+CodeEdit/Features/Wiki/Views/WikiWindow.swift
+  s_2a634cebefba24::t_3e5d943162923d 93-95,98,105,126-127,139
+CodeEditTests/Features/Wiki/StructureIndexTests.swift
+  s_2a634cebefba24::t_7e90039cbf24ef 1-238
+CodeEdit/CodeEditApp.swift
+  s_2a634cebefba24::t_3e5d943162923d 39-40
+CodeEdit/Features/Wiki/Views/Structure/StructureDomainView.swift
+  s_2a634cebefba24::t_dc4fdf933c686a 1-28,35-68,73,77-83,85-88,90-91,93-106,108-109
+  s_2a634cebefba24::t_16382e6c7f180d 29-34,69-72,74-76,84,89,92,107
+CodeEdit/Features/Wiki/Views/Structure/StructureBreadcrumbBar.swift
+  s_2a634cebefba24::t_3d8da46ef988b4 1-95
+CodeEdit/Features/Wiki/Views/Structure/StructureCommon.swift
+  s_2a634cebefba24::t_3d8da46ef988b4 1-76
+CodeEdit/Features/Wiki/Views/Structure/StructurePackageView.swift
+  s_2a634cebefba24::t_16382e6c7f180d 1-128
+CodeEdit/Features/Wiki/Views/WikiWindow+Center.swift
+  s_2a634cebefba24::t_3e5d943162923d 5,25,76-81
+  s_2a634cebefba24::t_e27f518e8fc51c 82
+CodeEdit/Features/Wiki/Views/Structure/StructureMapView.swift
+  s_2a634cebefba24::t_16382e6c7f180d 5,28,88,91-93,159-163,169-174,182,207-211
+  s_2a634cebefba24::t_dc4fdf933c686a 1-4,6-27,29-87,89-90,94-158,164-168,175-181,183-206,212-214
+CodeEdit/Features/Wiki/Service/StructureVerification.swift
+  s_2a634cebefba24::t_7e90039cbf24ef 128-129
+  s_2a634cebefba24::t_16382e6c7f180d 19,42-46,182-184,187-189,213
+  s_2a634cebefba24::t_3e5d943162923d 1-18,20-41,47-127,130-181,185-186,190-212,214-259
+CodeEdit/Features/Wiki/Models/StructureIndex.swift
+  s_2a634cebefba24::t_16382e6c7f180d 81-90,93-102,306,308-312,314-317,319-339,341
+  s_2a634cebefba24::t_3d8da46ef988b4 313
+  s_2a634cebefba24::t_ec0bf6d5f83af3 1-80,103-243,261-303,342-449,452-484
+  s_2a634cebefba24::t_ae423cdace7d82 91-92,244-260,304-305,307,318,340,450-451
+CodeEdit/Features/Wiki/Views/Structure/StructureOverviewView.swift
+  s_2a634cebefba24::t_16382e6c7f180d 134-135
+  s_2a634cebefba24::t_dc4fdf933c686a 1-133,136-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "5c4f27a99d2058488ba65bd0319285a3e92683a7",
+  "prompts": {},
+  "sessions": {
+    "s_2a634cebefba24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8abc42ef-5ae5-4718-a491-76f0985f2e7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "unknown"
+    }
+  }
+}

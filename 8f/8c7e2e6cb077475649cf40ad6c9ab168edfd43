@@ -1,0 +1,20 @@
+CodeEdit/Features/Wiki/Service/DomainAnalyzer.swift
+  s_2a634cebefba24::t_64e5a8f1c92878 303-306,308-309
+  s_2a634cebefba24::t_f5be49d8203b56 294-297,299-300
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "8f8c7e2e6cb077475649cf40ad6c9ab168edfd43",
+  "prompts": {},
+  "sessions": {
+    "s_2a634cebefba24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8abc42ef-5ae5-4718-a491-76f0985f2e7e",
+        "model": "unknown"
+      },
+      "human_author": "unknown"
+    }
+  }
+}
