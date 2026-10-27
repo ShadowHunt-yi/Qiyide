@@ -1,0 +1,31 @@
+CodeEdit/Features/Editor/GitBlame/GitBlameAnnotation.swift
+  s_c769df6767aed6::t_b1d5996b5977ca 27-80,90,103,108,113
+  s_c769df6767aed6::t_4c5151e39ab39d 1-26,81-89,91-102,104-107,109-112,114
+CodeEdit/Features/Editor/GitBlame/GitBlameCoordinator.swift
+  s_c769df6767aed6::t_b7f0173be1f2c3 41-152,184-199
+  s_c769df6767aed6::t_4d5c0ff5bb15e4 37-38
+  s_c769df6767aed6::t_96f63c309e78e8 206
+  s_c769df6767aed6::t_bdc300b29cedca 17-28,153-155
+  s_c769df6767aed6::t_18422a179ff970 14-16
+  s_c769df6767aed6::t_6d1f7bd4966c75 29-31,34-36
+  s_c769df6767aed6::t_b1cfb1724e2be7 39-40
+  s_c769df6767aed6::t_40b243ca73c627 156-158,181-183
+  s_c769df6767aed6::t_7aab8b846b0887 200-205
+  s_c769df6767aed6::t_3fc838b465e653 207-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "dd27aa4602af8afa9cceeb5f9bed8cfb62ab072b",
+  "prompts": {},
+  "sessions": {
+    "s_c769df6767aed6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e87a03a-c136-4ac7-884f-358f6441e8d7",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
