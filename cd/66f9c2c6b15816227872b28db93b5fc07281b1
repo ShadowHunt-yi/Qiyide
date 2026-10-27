@@ -1,0 +1,19 @@
+CodeEdit/Features/LSP/Service/LSPCodeActions.swift
+  s_c769df6767aed6::t_f12d1f3a0dec38 15-16,126-137,139-144,146,235-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "cd66f9c2c6b15816227872b28db93b5fc07281b1",
+  "prompts": {},
+  "sessions": {
+    "s_c769df6767aed6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e87a03a-c136-4ac7-884f-358f6441e8d7",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
