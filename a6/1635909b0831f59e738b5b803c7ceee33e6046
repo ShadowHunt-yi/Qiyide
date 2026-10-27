@@ -1,0 +1,14 @@
+.github/workflows/build-dmg.yml
+  h_6984196a933a03 152-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "a61635909b0831f59e738b5b803c7ceee33e6046",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
