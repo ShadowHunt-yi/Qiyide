@@ -1,0 +1,21 @@
+CodeEdit/Features/UtilityArea/TerminalUtility/UtilityAreaTerminalSidebar.swift
+  s_c769df6767aed6::t_b09ab9bebfd1cf 16-57,79,83,88,95-111,113-114,119
+CodeEdit/Localization/zh-Hans.lproj/Localizable.strings
+  s_c769df6767aed6::t_65a8807c7a2030 625-626
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "30709c556524fcfee9f36d84c2e16a285f913c74",
+  "prompts": {},
+  "sessions": {
+    "s_c769df6767aed6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e87a03a-c136-4ac7-884f-358f6441e8d7",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
