@@ -1,0 +1,16 @@
+NOTICE.md
+  h_6984196a933a03 13,69
+README.md
+  h_6984196a933a03 7,101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "69b12c30fc71e5ee42f4329f2ed9cd44aa5981d7",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
