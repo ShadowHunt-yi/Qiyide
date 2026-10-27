@@ -73,18 +73,41 @@ extension WorkspaceDocument.SearchState {
         }
     }
 
+    /// 索引时跳过的目录：构建产物与依赖缓存。
+    ///
+    /// 这些目录通常包含成千上万个生成文件（本机 `saas-plus-ai-platform` 的 `target/` 就有 4400+ 个），
+    /// 索引它们既显著拉长建索引时间，也会让搜索结果里混入大量无意义条目。
+    private static let indexExcludedDirectories: Set<String> = [
+        "node_modules", "target", "build", "dist", "out", "Pods", "DerivedData",
+        ".build", ".gradle", "__pycache__", ".venv", "venv", ".tox"
+    ]
+
     /// Retrieves an array of file URLs within the specified directory URL.
     ///
     /// - Parameter url: The URL of the directory to search for files.
     ///
     /// - Returns: An array of file URLs found within the specified directory.
     func getFileURLs(at url: URL) -> [URL] {
-        let enumerator = FileManager.default.enumerator(
+        guard let enumerator = FileManager.default.enumerator(
             at: url,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        )
-        return enumerator?.allObjects as? [URL] ?? []
+        ) else {
+            return []
+        }
+
+        // 逐个取而不是 `allObjects`：碰到构建产物目录要用 `skipDescendants()` 整棵跳过，
+        // 否则仍会枚举完再过滤（4000+ 文件的目录白走一遍）。
+        var urls: [URL] = []
+        while let element = enumerator.nextObject() as? URL {
+            let isDirectory = (try? element.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDirectory, Self.indexExcludedDirectories.contains(element.lastPathComponent) {
+                enumerator.skipDescendants()
+                continue
+            }
+            urls.append(element)
+        }
+        return urls
     }
 
     /// Retrieves the contents of a files  from the specified file paths.
