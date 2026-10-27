@@ -233,12 +233,24 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
         for index in 0..<count {
             let lineRange = lineRanges[index]
             guard lineRange.length > 0 else { continue }
-            // 锚点必须是换行符：末行没有换行时，行尾最后一个可见字符不能被附件覆盖
-            // （附件区间会整段交给附件绘制，原字符不再绘制）。
-            let anchor = lineRange.location + lineRange.length - 1
+
+            // 锚点是**换行符本身**，不是行内最后一个可见字符。
+            //
+            // `enumerateSubstrings(.byLines)` 返回的区间**不含**行终止符：
+            // "abc\ndef" 会得到 {0,3} 与 {4,3}，换行符位于 location + length。
+            // 原实现用 `length - 1` 定位，得到的是 "c"/"f"，随后「必须是换行符」
+            // 的守卫对每一行都不成立，导致一条标注都装不上（日志表现为「已安装 0/N 行」）。
+            var anchor = lineRange.location + lineRange.length
+            // 末行没有换行符：跳过。附件会整段替换其覆盖的字符，
+            // 没有换行符可占用时就会吃掉最后一个可见字符。
             guard anchor < nsText.length else { continue }
-            let lastUnit = nsText.character(at: anchor)
-            guard lastUnit == 10 || lastUnit == 13 else { continue }
+            var unit = nsText.character(at: anchor)
+            // CRLF 以 LF 作为锚点，避免只覆盖 CR 留下孤立的 LF。
+            if unit == 13, anchor + 1 < nsText.length, nsText.character(at: anchor + 1) == 10 {
+                anchor += 1
+                unit = 10
+            }
+            guard unit == 10 || unit == 13 else { continue }
             // 同一位置只允许一个附件（重叠附件会被排版忽略，纯属浪费）。
             guard lastAnchor != anchor else { continue }
             lastAnchor = anchor
