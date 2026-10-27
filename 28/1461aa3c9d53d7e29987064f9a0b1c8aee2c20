@@ -1,0 +1,16 @@
+CodeEdit/Features/Editor/GitBlame/GitBlameCoordinator.swift
+  h_6984196a933a03 179-180,232,256,258-260
+CodeEdit/Features/Settings/Pages/SourceControlSettings/Models/SourceControlSettings.swift
+  h_6984196a933a03 95-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "281461aa3c9d53d7e29987064f9a0b1c8aee2c20",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
