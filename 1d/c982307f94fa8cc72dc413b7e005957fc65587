@@ -1,0 +1,16 @@
+CodeEdit/AppDelegate.swift
+  h_6984196a933a03 23-30,45-50,92-93
+CodeEdit/Features/Diagnostics/PerformanceRecorder.swift
+  h_6984196a933a03 1-495
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "1dc982307f94fa8cc72dc413b7e005957fc65587",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
