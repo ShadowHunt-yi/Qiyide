@@ -35,12 +35,18 @@ echo "==> DISABLE_SWIFTLINT=${DISABLE_SWIFTLINT:-<未设置>}（非空则跳过 
 echo "==> 日志: $LOG"
 echo
 
+# 目标平台。本机默认 arm64；CI 的 runner 架构不固定（Intel 与 Apple Silicon 都有），
+# 通过 BUILD_DESTINATION 覆盖为 generic/platform=macOS，按运行机架构构建。
+DESTINATION="${BUILD_DESTINATION:-platform=macOS,arch=arm64}"
+echo "==> 目标: $DESTINATION"
+echo
+
 set +e
 xcodebuild \
     -project "$REPO_ROOT/CodeEdit.xcodeproj" \
     -scheme CodeEdit \
     -configuration "$CONFIG" \
-    -destination 'platform=macOS,arch=arm64' \
+    -destination "$DESTINATION" \
     -derivedDataPath "$REPO_ROOT/build" \
     -skipPackagePluginValidation \
     -skipMacroValidation \

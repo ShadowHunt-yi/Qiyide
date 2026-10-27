@@ -1,0 +1,120 @@
+name: Build DMG
+
+# 云打包：产出一个未签名（ad-hoc 签名）的 dmg，供内测分发。
+#
+# 为什么不能直接 `xcodebuild` 了事：
+#   1. CodeEdit.xcodeproj 用 XCLocalSwiftPackageReference 指向 `../CodeEditSourceEditor`，
+#      而后者又依赖 `../CodeEditTextView` 与 `../CodeEditLanguages`。
+#      因此 CI 必须把四个仓库检出成**同级目录**，否则包解析直接失败。
+#   2. 构建阶段关闭代码签名（无证书），产物需 ad-hoc 签名后才能在本机启动，
+#      由 scripts/package-dmg.sh 负责，工作流不接触任何证书类 secrets。
+#   3. runner 架构不固定，构建目标通过 BUILD_DESTINATION 覆盖为 generic/platform=macOS。
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "要构建的 CodeEdit 分支或标签"
+        required: false
+        default: "main"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-dmg-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 本地包固定到具体提交：三个仓库的改动需要与主仓库精确对应，
+  # 用分支名会让同一份 CodeEdit 在不同时间构建出不同结果。
+  # 升级本地包后同步更新这里的 SHA。
+  CODEEDIT_SOURCE_EDITOR_REF: efb55b4226b621686f7df0e12d5b6d91403efd63
+  CODEEDIT_TEXTVIEW_REF: 49fb275c99528f0949f38457532bec630e1c7d1a
+  CODEEDIT_LANGUAGES_REF: 32a1ddcb44d0bcf9bdb41ae426fa1bb7198e62fe
+
+jobs:
+  build:
+    # 需要 macOS 26 SDK 时可把仓库变量 MACOS_RUNNER 设为 macos-26（Settings → Variables）。
+    # 未设置时退回 macos-15（Xcode 16，项目部署目标为 macOS 14，可编译）。
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-15' }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout CodeEdit
+        uses: actions/checkout@v4
+        with:
+          path: CodeEdit
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Checkout CodeEditSourceEditor
+        uses: actions/checkout@v4
+        with:
+          repository: ShadowHunt-yi/CodeEditSourceEditor
+          ref: ${{ env.CODEEDIT_SOURCE_EDITOR_REF }}
+          path: CodeEditSourceEditor
+          fetch-depth: 1
+
+      - name: Checkout CodeEditTextView
+        uses: actions/checkout@v4
+        with:
+          repository: ShadowHunt-yi/CodeEditTextView
+          ref: ${{ env.CODEEDIT_TEXTVIEW_REF }}
+          path: CodeEditTextView
+          fetch-depth: 1
+
+      - name: Checkout CodeEditLanguages
+        uses: actions/checkout@v4
+        with:
+          repository: ShadowHunt-yi/CodeEditLanguages
+          ref: ${{ env.CODEEDIT_LANGUAGES_REF }}
+          path: CodeEditLanguages
+          fetch-depth: 1
+
+      - name: Verify sibling package layout
+        working-directory: CodeEdit
+        # 本地路径依赖要求三个包与 CodeEdit 处于同一父目录下，缺一个就会解析失败。
+        run: |
+          set -e
+          for pkg in CodeEditSourceEditor CodeEditTextView CodeEditLanguages; do
+            test -f "../$pkg/Package.swift" || { echo "缺少同级包: ../$pkg"; exit 1; }
+          done
+          echo "同级包布局正确"
+          ls -1 ..
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          uname -m
+
+      - name: Build (Release, unsigned)
+        working-directory: CodeEdit
+        env:
+          BUILD_DESTINATION: generic/platform=macOS
+        run: ./scripts/build.sh Release
+
+      - name: Package DMG
+        working-directory: CodeEdit
+        run: ./scripts/package-dmg.sh Release
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Qiyide-dmg-${{ github.run_number }}
+          path: CodeEdit/build/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: CodeEdit/build/build.log
+          if-no-files-found: ignore
+          retention-days: 7
