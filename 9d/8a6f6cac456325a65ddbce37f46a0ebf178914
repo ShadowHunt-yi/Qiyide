@@ -1,0 +1,24 @@
+CodeEdit/Features/AIReview/Client/GitClient+CommitAnalysis.swift
+  h_6984196a933a03 1-40
+CodeEdit/Features/AIReview/Models/ChangeReviewModels.swift
+  h_6984196a933a03 1-496
+CodeEdit/Features/AIReview/Service/AIReviewService.swift
+  h_6984196a933a03 1-158
+CodeEdit/Features/AIReview/Views/AIReviewWindow.swift
+  h_6984196a933a03 1-521
+CodeEdit/Features/WindowCommands/ViewCommands.swift
+  h_6984196a933a03 54-59
+README.md
+  h_6984196a933a03 70-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "9d8a6f6cac456325a65ddbce37f46a0ebf178914",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
