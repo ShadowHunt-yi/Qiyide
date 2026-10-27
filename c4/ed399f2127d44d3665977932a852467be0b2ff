@@ -1,0 +1,25 @@
+CodeEdit/Features/Documents/Controllers/CodeEditDocumentController.swift
+  s_c769df6767aed6::t_8e43f24af45e78 127-134
+CodeEdit/Features/InspectorArea/HistoryInspector/HistoryInspectorModel.swift
+  s_c769df6767aed6::t_6f475154665e02 23-27
+CodeEdit/Features/InspectorArea/HistoryInspector/HistoryInspectorView.swift
+  s_c769df6767aed6::t_2eb2e751004058 48,51,54,57,65-77
+CodeEdit/Features/LSP/Service/LSPService.swift
+  s_c769df6767aed6::t_76e848bf7fad36 215,289-313
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "c4ed399f2127d44d3665977932a852467be0b2ff",
+  "prompts": {},
+  "sessions": {
+    "s_c769df6767aed6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e87a03a-c136-4ac7-884f-358f6441e8d7",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
