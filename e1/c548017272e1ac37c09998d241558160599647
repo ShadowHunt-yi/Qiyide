@@ -1,0 +1,16 @@
+CodeEdit/Features/Documents/WorkspaceDocument/WorkspaceDocument+Find.swift
+  h_6984196a933a03 36-41,43-44
+CodeEdit/Features/Documents/WorkspaceDocument/WorkspaceDocument+Index.swift
+  h_6984196a933a03 76-84,91,93,95-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "e1c548017272e1ac37c09998d241558160599647",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
