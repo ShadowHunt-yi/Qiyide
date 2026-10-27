@@ -149,8 +149,13 @@ jobs:
         run: |
           set -euo pipefail
           DMG="$(ls *.dmg | head -1)"
-          # GHCR 镜像名必须全小写：GITHUB_REPOSITORY_OWNER 可能是 ShadowHunt-yi。
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/qiyide"
+
+          # GHCR 镜像名必须全小写（owner 可能是 ShadowHunt-yi）。
+          # 注意：不能用 `${VAR,,}`——macOS runner 的 /bin/bash 是 3.2，
+          # 不支持大小写展开，会直接报 "bad substitution" 并中止步骤。
+          OWNER_LOWER="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="ghcr.io/${OWNER_LOWER}/qiyide"
+          echo "镜像: ${IMAGE}:${TAG}"
 
           printf '%s' "$GH_TOKEN" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
 
