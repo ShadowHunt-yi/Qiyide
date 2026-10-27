@@ -1,0 +1,21 @@
+CodeEdit/Localization/zh-Hans.lproj/Localizable.strings
+  s_c769df6767aed6::t_b7f0173be1f2c3 614-616
+  s_c769df6767aed6::t_e29da5c0f87921 611-613
+  s_c769df6767aed6::t_80119bc289b157 617-619
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "495d9f0c4389be011af5cac51e0a9f058876615e",
+  "prompts": {},
+  "sessions": {
+    "s_c769df6767aed6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e87a03a-c136-4ac7-884f-358f6441e8d7",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
