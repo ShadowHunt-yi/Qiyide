@@ -1,0 +1,18 @@
+CodeEdit/Features/NavigatorArea/SourceControlNavigator/Views/ChangedFile/GitChangedFileLabel.swift
+  h_6984196a933a03 22-23
+CodeEdit/Features/NavigatorArea/SourceControlNavigator/Views/ChangedFile/GitChangedFileListView.swift
+  h_6984196a933a03 54-57,64-65
+CodeEdit/Features/NavigatorArea/SourceControlNavigator/Views/SourceControlNavigatorView.swift
+  h_6984196a933a03 44-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "357080aed65957837b70f429b65d73d111e854ab",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
