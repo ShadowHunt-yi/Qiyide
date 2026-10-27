@@ -27,6 +27,9 @@ struct EditorAreaView: View {
 
     @State var codeFile: (() -> CodeFileDocument?)?
 
+    /// 拖拽文件悬停在编辑区上时为 true，用于高亮提示。
+    @State private var isDropTargeted = false
+
     @Environment(\.window.value)
     private var window: NSWindow?
 
@@ -58,17 +61,22 @@ struct EditorAreaView: View {
 
         VStack {
             if let selected = editor.selectedTab {
-                if let codeFile = codeFile?() {
-                    EditorAreaFileView(editorInstance: selected, codeFile: codeFile)
+                if let diffSource = selected.diffSource {
+                    // 差异标签：VS Code 式并排对比，不走文件文档加载路径。
+                    GitDiffTabView(source: diffSource)
                         .focusedObject(editor)
                         .transformEnvironment(\.edgeInsets) { insets in
                             insets.top += editorInsetAmount
                         }
                         .opacity(dimEditorsWithoutFocus && editor != editorManager.activeEditor ? 0.5 : 1)
-                        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                            _ = handleDrop(providers: providers)
-                            return true
+                } else if let codeFile = codeFile?() {
+                    // Markdown 开启预览时源码 | 预览分栏；其余情况只显示源码。
+                    MarkdownEditorContainerView(editorInstance: selected, codeFile: codeFile)
+                        .focusedObject(editor)
+                        .transformEnvironment(\.edgeInsets) { insets in
+                            insets.top += editorInsetAmount
                         }
+                        .opacity(dimEditorsWithoutFocus && editor != editorManager.activeEditor ? 0.5 : 1)
                 } else {
                     LoadingFileView(selected.file.name)
                         .onAppear {
@@ -86,13 +94,23 @@ struct EditorAreaView: View {
                     .onTapGesture {
                         editorManager.activeEditor = editor
                     }
-                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                        _ = handleDrop(providers: providers)
-                        return true
-                    }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 拖放统一挂在容器上：任何标签内容（文件、差异、空状态）都可接收拖入的文件。
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            _ = handleDrop(providers: providers)
+            return true
+        }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .background(Color.accentColor.opacity(0.06))
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
         .ignoresSafeArea(.all)
         .safeAreaInset(edge: .top, spacing: 0) {
             GeometryReader { geometry in

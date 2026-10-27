@@ -34,9 +34,26 @@ struct SourceControlNavigatorAllChangesView: View {
                                 }
                                 .listRowSeparator(.hidden)
                                 .padding(.vertical, -1)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    GitDiffTab.open(
+                                        changedFile: file,
+                                        manager: repository.manager,
+                                        workspace: workspace,
+                                        asTemporary: true
+                                    )
+                                }
+                                .onDrag {
+                                    NSItemProvider(object: file.fileURL as NSURL)
+                                }
                                 .contextMenu {
                                     Button("View Diff") {
-                                        GitDiffWindowPresenter.show(file: file, manager: repository.manager)
+                                        GitDiffTab.open(
+                                            changedFile: file,
+                                            manager: repository.manager,
+                                            workspace: workspace,
+                                            asTemporary: false
+                                        )
                                     }
                                     Button("Open in New Tab") {
                                         let ceFile = workspace.workspaceFileManager?.getFile(

@@ -182,7 +182,25 @@ final class Editor: ObservableObject, Identifiable {
     ///   - file: the file to open.
     ///   - asTemporary: indicates whether the tab should be opened as a temporary tab or a permanent tab.
     func openTab(file: CEWorkspaceFile, asTemporary: Bool) {
-        let item = EditorInstance(workspace: workspace, file: file)
+        openTab(instance: EditorInstance(workspace: workspace, file: file), asTemporary: asTemporary)
+    }
+
+    /// 在编辑器区打开差异标签（VS Code 式）。
+    /// - Parameters:
+    ///   - source: 差异数据源。
+    ///   - asTemporary: 是否作为临时标签打开。
+    func openDiffTab(source: GitDiffTabSource, asTemporary: Bool) {
+        let item = EditorInstance(workspace: workspace, file: source.file)
+        item.diffSource = source
+        openTab(instance: item, asTemporary: asTemporary)
+    }
+
+    /// Opens a tab for an already-constructed editor instance (e.g. a diff tab).
+    /// If a tab for the item already exists, it is used instead.
+    /// - Parameters:
+    ///   - item: the instance to open.
+    ///   - asTemporary: indicates whether the tab should be opened as a temporary tab or a permanent tab.
+    func openTab(instance item: EditorInstance, asTemporary: Bool) {
         // Item is already opened in a tab.
         guard !tabs.contains(item) || !asTemporary else {
             selectedTab = item
@@ -196,16 +214,16 @@ final class Editor: ObservableObject, Identifiable {
         case (.some(let tab), false) where tab == item:
             temporaryTab = nil
         case (.some(let tab), false) where tab != item:
-            openTab(file: item.file)
+            openTab(instance: item, at: nil, fromHistory: false)
         case (.some, false):
             // A temporary tab exists, but we don't want to open this one as temporary.
             // Clear the temp tab and open the new one.
-            openTab(file: item.file)
+            openTab(instance: item, at: nil, fromHistory: false)
         case (.none, true):
-            openTab(file: item.file)
+            openTab(instance: item, at: nil, fromHistory: false)
             temporaryTab = item
         case (.none, false):
-            openTab(file: item.file)
+            openTab(instance: item, at: nil, fromHistory: false)
         }
     }
 
@@ -248,7 +266,19 @@ final class Editor: ObservableObject, Identifiable {
     ///   - index: Index where the tab needs to be added. If nil, it is added to the back.
     ///   - fromHistory: Indicates whether the tab has been opened from going back in history.
     func openTab(file: CEWorkspaceFile, at index: Int? = nil, fromHistory: Bool = false) {
-        let item = Tab(workspace: workspace, file: file)
+        openTab(
+            instance: EditorInstance(workspace: workspace, file: file),
+            at: index,
+            fromHistory: fromHistory
+        )
+    }
+
+    /// Opens a tab for an already-constructed editor instance.
+    /// - Parameters:
+    ///   - item: The tab to open.
+    ///   - index: Index where the tab needs to be added. If nil, it is added to the back.
+    ///   - fromHistory: Indicates whether the tab has been opened from going back in history.
+    func openTab(instance item: EditorInstance, at index: Int? = nil, fromHistory: Bool = false) {
         if let index {
             tabs.insert(item, at: index)
         } else {
@@ -280,6 +310,10 @@ final class Editor: ObservableObject, Identifiable {
     }
 
     private func openFile(item: Tab) throws {
+        // 差异标签不加载文件文档，内容由差异视图渲染。
+        guard item.diffSource == nil else {
+            return
+        }
         // If this isn't attached to a workspace, loading a new NSDocument will cause a loose document we can't close
         guard item.file.fileDocument == nil else {
             return

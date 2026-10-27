@@ -40,7 +40,12 @@ struct SourceControlNavigatorChangesList: View {
                             openGitFile(file)
                         }
                         Button("View Diff") {
-                            GitDiffWindowPresenter.show(file: file, manager: sourceControlManager)
+                            GitDiffTab.open(
+                                changedFile: file,
+                                manager: sourceControlManager,
+                                workspace: workspace,
+                                asTemporary: false
+                            )
                         }
                         Button("Open in New Window") {}
                             .disabled(true) // TODO: Implementation Needed
@@ -62,14 +67,26 @@ struct SourceControlNavigatorChangesList: View {
             primaryAction: { selectedFiles in
                 if selectedFiles.count == 1,
                    let file = selectedFiles.first {
-                    openGitFile(file)
+                    // 双击：固定为常驻差异标签（VS Code 双击钉住行为）。
+                    GitDiffTab.open(
+                        changedFile: file,
+                        manager: sourceControlManager,
+                        workspace: workspace,
+                        asTemporary: false
+                    )
                 }
             }
         )
         .onChange(of: selection) { _, newSelection in
+            // 单击改动文件：在编辑器区打开差异标签（VS Code 行为）。
             if newSelection.count == 1,
                let file = newSelection.first {
-                openGitFile(file)
+                GitDiffTab.open(
+                    changedFile: file,
+                    manager: sourceControlManager,
+                    workspace: workspace,
+                    asTemporary: true
+                )
             }
         }
     }

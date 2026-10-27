@@ -17,6 +17,13 @@ class EditorInstance: ObservableObject, Hashable {
     /// The file presented in this editor instance.
     let file: CEWorkspaceFile
 
+    /// 非空时该标签显示差异视图（VS Code 式）而不是文件内容。
+    /// 差异标签不加载 `fileDocument`，`openFile` 会直接跳过。
+    var diffSource: GitDiffTabSource?
+
+    /// Markdown 文件是否显示右侧实时预览（源码与预览分栏，滚动同步）。
+    @Published var showMarkdownPreview: Bool = false
+
     /// A publisher for the user's current location in a file.
     @Published var cursorPositions: [CursorPosition]
     @Published var scrollPosition: CGPoint?
@@ -114,10 +121,12 @@ class EditorInstance: ObservableObject, Hashable {
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(file)
+        // 差异标签与普通标签是同一个文件的两个标签，必须参与区分。
+        hasher.combine(diffSource?.id)
     }
 
     static func == (lhs: EditorInstance, rhs: EditorInstance) -> Bool {
-        lhs.file == rhs.file
+        lhs.file == rhs.file && lhs.diffSource?.id == rhs.diffSource?.id
     }
 
     // MARK: - RangeTranslator
@@ -125,6 +134,9 @@ class EditorInstance: ObservableObject, Hashable {
     /// Translates ranges (eg: from a cursor position) to other information like the number of lines in a range.
     class RangeTranslator: TextViewCoordinator {
         private weak var textViewController: TextViewController?
+
+        /// 当前实例的文本视图。用于需要携带撤销记录的程序化编辑（格式化、重命名）。
+        var textView: TextView? { textViewController?.textView }
 
         init() { }
 
