@@ -10,7 +10,7 @@
 | 上游项目 | **CodeEdit** — <https://github.com/CodeEditApp/CodeEdit> |
 | 上游版权 | `Copyright (c) 2022 CodeEdit` |
 | 上游许可证 | MIT License（全文见 [LICENSE.md](LICENSE.md)，该文件为上游原文，未作修改） |
-| 本仓库 | **Qiyide** — <https://github.com/ShadowHunt-yi/CodeEdit>，CodeEdit 的衍生项目 |
+| 本仓库 | **Qiyide** — <https://github.com/ShadowHunt-yi/Qiyide>，CodeEdit 的衍生项目 |
 | 本仓库许可 | MIT（沿用上游），保留上游版权与许可声明 |
 | 关系 | 独立的二次开发，**非** CodeEdit 官方发行版，与上游团队无隶属或背书关系 |
 
@@ -66,4 +66,4 @@
 ## 6. 问题反馈
 
 - 与上游共有的缺陷 → 上游仓库 Issues：<https://github.com/CodeEditApp/CodeEdit/issues>
-- 仅存在于本仓库的问题 → 本项目 Issues：<https://github.com/ShadowHunt-yi/CodeEdit/issues>
+- 仅存在于本仓库的问题 → 本项目 Issues：<https://github.com/ShadowHunt-yi/Qiyide/issues>

@@ -4,7 +4,7 @@
 
 **基于 [CodeEdit](https://github.com/CodeEditApp/CodeEdit) 二次开发的 macOS 代码编辑器**
 
-[![Build DMG](https://github.com/ShadowHunt-yi/CodeEdit/actions/workflows/build-dmg.yml/badge.svg)](https://github.com/ShadowHunt-yi/CodeEdit/actions/workflows/build-dmg.yml)
+[![Build DMG](https://github.com/ShadowHunt-yi/Qiyide/actions/workflows/build-dmg.yml/badge.svg)](https://github.com/ShadowHunt-yi/Qiyide/actions/workflows/build-dmg.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-black.svg)](#)
 
@@ -98,4 +98,4 @@ Qiyide 在 CodeEdit 的基础上做产品化与工程化改造：可以与原版
 
 本项目全部能力建立在上游 [CodeEdit](https://github.com/CodeEditApp/CodeEdit) 之上，
 建议同时阅读上游 README 与其贡献指南。与上游共有的缺陷请反馈至上游 Issues；
-仅存在于本仓库的问题请提到[本项目 Issues](https://github.com/ShadowHunt-yi/CodeEdit/issues)。
+仅存在于本仓库的问题请提到[本项目 Issues](https://github.com/ShadowHunt-yi/Qiyide/issues)。
