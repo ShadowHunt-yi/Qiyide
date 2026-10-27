@@ -86,6 +86,16 @@ struct CodeFileView: View {
             + [editorInstance.rangeTranslator]
             + [codeFile.contentCoordinator]
             + [codeFile.languageServerObjects.textCoordinator]
+        // 行级 blame 标注：协调器由 codeFile 强持有（TextViewController 侧是弱引用）。
+        if codeFile.gitBlameCoordinator == nil {
+            codeFile.gitBlameCoordinator = GitBlameCoordinator(
+                fileURL: editorInstance.file.url,
+                codeFile: codeFile
+            )
+        }
+        if let blameCoordinator = codeFile.gitBlameCoordinator {
+            self.textViewCoordinators.append(blameCoordinator)
+        }
         self.isEditable = isEditable
 
         if let openOptions = codeFile.openOptions {
@@ -93,7 +103,13 @@ struct CodeFileView: View {
             editorInstance.cursorPositions = openOptions.cursorPositions
         }
 
-        highlightProviders = [codeFile.languageServerObjects.highlightProvider] + [treeSitterClient]
+        // XML 族走词法高亮（精确区分标签/属性/注释/CDATA），其余语言走 tree-sitter + LSP 语义 token。
+        // 语言名与 CodeEditLanguages 中的 tsName 保持一致（XML / markdown）。
+        if codeFile.getLanguage().tsName == "XML" {
+            highlightProviders = [XMLHighlightProvider()]
+        } else {
+            highlightProviders = [codeFile.languageServerObjects.highlightProvider] + [treeSitterClient]
+        }
 
         codeFile
             .contentCoordinator

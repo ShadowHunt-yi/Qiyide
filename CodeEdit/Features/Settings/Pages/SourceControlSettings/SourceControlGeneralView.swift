@@ -22,6 +22,7 @@ struct SourceControlGeneralView: View {
                 selectFilesToCommitAuto
             }
             Section("Text Editing") {
+                showLineBlameToggle
                 showSourceControlChanges
                 includeUpstreamChanges
             }
@@ -34,6 +35,17 @@ struct SourceControlGeneralView: View {
 }
 
 private extension SourceControlGeneralView {
+    private var showLineBlameToggle: some View {
+        Toggle(
+            "Show git line blame annotations",
+            isOn: $settings.showLineBlame
+        )
+        .onChange(of: settings.showLineBlame) { _, _ in
+            // 通知所有打开的编辑器立即启用/停用标注。
+            NotificationCenter.default.post(name: .gitBlameSettingsDidChange, object: nil)
+        }
+    }
+
     private var refreshLocalStatusAuto: some View {
         Toggle(
             "Refresh local status automatically",

@@ -37,6 +37,9 @@ final class CodeFileDocument: NSDocument, ObservableObject {
 
     /// The text content of the document, stored as a text storage
     ///
+    /// 行级 git blame 标注的协调器（强持有：TextViewController 对协调器是弱引用）。
+    var gitBlameCoordinator: GitBlameCoordinator?
+
     /// This is intentionally not a `@Published` variable. If it were published, SwiftUI would do a string
     /// compare each time the contents are updated, which could cause a hang on each keystroke if the file is large
     /// enough.

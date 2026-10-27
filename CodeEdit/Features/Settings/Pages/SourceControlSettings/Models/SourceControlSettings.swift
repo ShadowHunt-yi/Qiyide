@@ -61,6 +61,8 @@ extension SettingsData {
         var addRemoveAutomatically: Bool = true
         /// Indicates whether the application should automatically select files to commit.
         var selectFilesToCommit: Bool = true
+        /// 是否在编辑器中显示 git blame 行级标注。
+        var showLineBlame: Bool = true
         /// Indicates whether or not to show the source control changes
         var showSourceControlChanges: Bool = true
         /// Indicates whether or not we should include the upstream
