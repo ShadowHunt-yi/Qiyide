@@ -1,0 +1,23 @@
+CodeEdit/Features/SourceControl/Client/GitClient+Blame.swift
+  s_51bba2190619e3::t_76511299ab5ac2 45-46,134-137,139
+CodeEdit/Features/SourceControl/Client/GitClient+CommitHistory.swift
+  s_51bba2190619e3::t_30335829cb05ed 27-32,36,76,80-101
+CodeEdit/Features/SourceControl/Client/GitClient+Stash.swift
+  s_51bba2190619e3::t_b4462fdf8ba1af 56-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "5ff4d8b3bb14efefdd7669b38ca5a82ffa653ffa",
+  "prompts": {},
+  "sessions": {
+    "s_51bba2190619e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6eac324d-f38d-4b4a-b202-fddb44837ed0",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
