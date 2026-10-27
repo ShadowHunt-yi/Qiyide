@@ -1,0 +1,31 @@
+.github/workflows/build-dmg.yml
+  s_df5e26d5aeb794::t_617b87f58228f5 1-120
+scripts/build.sh
+  s_c769df6767aed6::t_de7d980c6f3c3f 38-43,49
+scripts/package-dmg.sh
+  s_c769df6767aed6::t_b8959e28b192f6 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "7fa899ee159d8917a3448e7cd321fb5a1a426b63",
+  "prompts": {},
+  "sessions": {
+    "s_c769df6767aed6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e87a03a-c136-4ac7-884f-358f6441e8d7",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    },
+    "s_df5e26d5aeb794": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47035f45-c64f-429d-a78e-0d408de7eba5",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
