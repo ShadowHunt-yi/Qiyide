@@ -12,6 +12,8 @@
 import AppKit
 import SwiftUI
 import LanguageServerProtocol
+import CodeEditTextView
+import OSLog
 
 @MainActor
 enum LSPCodeActions {
@@ -121,23 +123,27 @@ enum LSPCodeActions {
                     NSLocalizedString("No references found.", comment: "")
                 )
             }
-            let rows = locations.prefix(500).map { location -> LSPReferenceRow in
-                let fileURL = Self.fileURL(from: location.uri)
-                    ?? URL(fileURLWithPath: location.uri)
-                var lineText = ""
-                if let content = try? String(contentsOf: fileURL, encoding: .utf8) {
-                    let lines = content.components(separatedBy: .newlines)
-                    if location.range.start.line < lines.count {
-                        lineText = lines[location.range.start.line]
+            let preview = locations.prefix(500)
+            // 读取最多 500 个文件的行文本是纯 IO，放到后台执行；主线程只做 UI。
+            let rows = await Task.detached(priority: .userInitiated) { () -> [LSPReferenceRow] in
+                preview.map { location -> LSPReferenceRow in
+                    let fileURL = Self.fileURL(from: location.uri)
+                        ?? URL(fileURLWithPath: location.uri)
+                    var lineText = ""
+                    if let content = try? String(contentsOf: fileURL, encoding: .utf8) {
+                        let lines = content.components(separatedBy: .newlines)
+                        if location.range.start.line < lines.count {
+                            lineText = lines[location.range.start.line]
+                        }
                     }
+                    return LSPReferenceRow(
+                        url: fileURL,
+                        line: location.range.start.line + 1,
+                        character: location.range.start.character + 1,
+                        text: lineText
+                    )
                 }
-                return LSPReferenceRow(
-                    url: fileURL,
-                    line: location.range.start.line + 1,
-                    character: location.range.start.character + 1,
-                    text: lineText
-                )
-            }
+            }.value
             LSPReferencesWindowPresenter.show(
                 title: context.tab.file.name,
                 rows: rows,
@@ -226,13 +232,16 @@ enum LSPCodeActions {
                     NSLocalizedString("Nothing to format.", comment: "")
                 )
             }
-            guard let storage = context.tab.file.fileDocument?.content else {
+            if let textView = context.tab.rangeTranslator.textView {
+                Self.apply(edits, to: textView, actionName: NSLocalizedString("Format Document", comment: ""))
+            } else if let storage = context.tab.file.fileDocument?.content {
+                Self.apply(edits, to: storage)
+            } else {
                 return notifyError(
                     "Format Document",
                     LSPActionError.documentNotAvailable
                 )
             }
-            Self.apply(edits, to: storage)
             NotificationManager.shared.post(
                 iconSymbol: "checkmark.circle",
                 title: NSLocalizedString("Format Document", comment: ""),
@@ -275,8 +284,18 @@ enum LSPCodeActions {
         guard !editsByURL.isEmpty else { return 0 }
 
         var applied = 0
+        var skippedOutsideWorkspace = 0
         for (url, edits) in editsByURL {
-            if let storage = openDocument(for: url)?.content {
+            // 只允许改动工作区内的文件：LSP 返回的 URI 不可信，
+            // 不设边界的话一个异常服务器就能改到任意路径。
+            guard isInWorkspace(url, workspace: workspace) else {
+                skippedOutsideWorkspace += edits.count
+                continue
+            }
+            if let textView = textView(for: url, workspace: workspace) {
+                // 打开中的文档走 TextView：编辑进入撤销栈，可 ⌘Z 回退。
+                Self.apply(edits, to: textView, actionName: NSLocalizedString("Rename Symbol", comment: ""))
+            } else if let storage = openDocument(for: url)?.content {
                 Self.apply(edits, to: storage)
             } else {
                 var text = try String(contentsOf: url, encoding: .utf8)
@@ -285,7 +304,103 @@ enum LSPCodeActions {
             }
             applied += edits.count
         }
+        if skippedOutsideWorkspace > 0 {
+            Self.logger.notice("已跳过工作区外的 \(skippedOutsideWorkspace) 处 LSP 编辑")
+        }
         return applied
+    }
+
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "app.qiyide",
+        category: "LSPActions"
+    )
+
+    /// 找到某个文件当前打开的文本视图（用于带撤销的编辑）。
+    static func textView(for url: URL, workspace: WorkspaceDocument?) -> TextView? {
+        guard let manager = workspace?.editorManager else { return nil }
+        let target = url.standardizedFileURL
+        for editor in manager.flattenedEditors {
+            for tab in editor.tabs where tab.file.url.standardizedFileURL == target {
+                if let textView = tab.rangeTranslator.textView {
+                    return textView
+                }
+            }
+        }
+        return nil
+    }
+
+    /// 文件是否位于工作区根目录之内（多根工作区逐个判断）。
+    static func isInWorkspace(_ url: URL, workspace: WorkspaceDocument?) -> Bool {
+        guard let roots = workspace?.workspaceFileManager?.rootUrls, !roots.isEmpty else {
+            return true
+        }
+        let path = url.standardizedFileURL.path
+        return roots.contains { root in
+            let rootPath = root.standardizedFileURL.path
+            return path == rootPath || path.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")
+        }
+    }
+
+    /// 行首偏移索引：一次扫描建立，之后按 LSP 位置取偏移是 O(1)。
+    ///
+    /// 原实现每条编辑都从文档头逐行计数、并复制一次整串（`textStorage.string as NSString`），
+    /// m 条编辑 × n 字符就是 O(n·m)——跨文件重命名时会有可感知的停顿。
+    private struct LineOffsetIndex {
+        private let lineStarts: [Int]
+        private let lineContentsEnd: [Int]
+        private let length: Int
+
+        init(_ text: NSString) {
+            var starts: [Int] = []
+            var ends: [Int] = []
+            var location = 0
+            while location < text.length {
+                var start = 0
+                var end = 0
+                var contentsEnd = 0
+                text.getLineStart(
+                    &start,
+                    end: &end,
+                    contentsEnd: &contentsEnd,
+                    for: NSRange(location: location, length: 0)
+                )
+                starts.append(start)
+                ends.append(contentsEnd)
+                guard end > location else { break }
+                location = end
+            }
+            self.lineStarts = starts
+            self.lineContentsEnd = ends
+            self.length = text.length
+        }
+
+        /// LSP 位置（0 基行 + UTF-16 列）→ 文档偏移；列超出本行时夹到行尾。
+        func offset(line: Int, character: Int) -> Int {
+            guard !lineStarts.isEmpty else { return 0 }
+            let targetLine = max(line, 0)
+            guard targetLine < lineStarts.count else { return length }
+            let start = lineStarts[targetLine]
+            let maxCharacter = max(lineContentsEnd[targetLine] - start, 0)
+            return start + min(max(character, 0), maxCharacter)
+        }
+    }
+
+    /// 通过 ``TextView`` 应用编辑：单次撤销分组，用户可用 ⌘Z 一次性回退。
+    static func apply(_ edits: [TextEdit], to textView: TextView, actionName: String) {
+        let undoManager = textView.undoManager
+        undoManager?.beginUndoGrouping()
+        // 索引与区间都基于原始文本一次性算好：倒序应用时前面的区间不会被移动。
+        let index = LineOffsetIndex(textView.textStorage.string as NSString)
+        let resolved = sortedDescending(edits).map { edit -> (NSRange, String) in
+            let start = index.offset(line: edit.range.start.line, character: edit.range.start.character)
+            let end = index.offset(line: edit.range.end.line, character: edit.range.end.character)
+            return (NSRange(location: start, length: max(end - start, 0)), edit.newText)
+        }
+        for (range, text) in resolved {
+            textView.replaceCharacters(in: range, with: text)
+        }
+        undoManager?.setActionName(actionName)
+        undoManager?.endUndoGrouping()
     }
 
     // MARK: - 文本工具
@@ -293,15 +408,14 @@ enum LSPCodeActions {
     /// 把 `TextEdit` 数组应用到文本存储（打开中的文档）。
     static func apply(_ edits: [TextEdit], to storage: NSTextStorage) {
         storage.beginEditing()
-        for edit in sortedDescending(edits) {
-            let nsText = storage.string as NSString
-            let start = offset(of: edit.range.start, in: nsText)
-            let end = offset(of: edit.range.end, in: nsText)
-            let length = max(end - start, 0)
-            storage.replaceCharacters(
-                in: NSRange(location: start, length: length),
-                with: edit.newText
-            )
+        let index = LineOffsetIndex(storage.string as NSString)
+        let resolved = sortedDescending(edits).map { edit -> (NSRange, String) in
+            let start = index.offset(line: edit.range.start.line, character: edit.range.start.character)
+            let end = index.offset(line: edit.range.end.line, character: edit.range.end.character)
+            return (NSRange(location: start, length: max(end - start, 0)), edit.newText)
+        }
+        for (range, text) in resolved {
+            storage.replaceCharacters(in: range, with: text)
         }
         storage.endEditing()
     }
@@ -408,8 +522,8 @@ enum LSPCodeActions {
         }
     }
 
-    /// LSP URI 转本地文件 URL。
-    static func fileURL(from uri: String) -> URL? {
+    /// LSP URI 转本地文件 URL（纯函数，可在后台线程调用）。
+    nonisolated static func fileURL(from uri: String) -> URL? {
         if let url = URL(string: uri), url.isFileURL {
             return url.standardizedFileURL
         }
