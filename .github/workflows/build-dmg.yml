@@ -9,6 +9,12 @@ name: Build DMG
 #   2. 构建阶段关闭代码签名（无证书），产物需 ad-hoc 签名后才能在本机启动，
 #      由 scripts/package-dmg.sh 负责，工作流不接触任何证书类 secrets。
 #   3. runner 架构不固定，构建目标通过 BUILD_DESTINATION 覆盖为 generic/platform=macOS。
+#
+# 发布：
+#   推 v* 标签时，除上传 workflow artifact 外，还会把 dmg 作为 OCI 制品推送到
+#   GHCR（ghcr.io/<owner>/qiyide:<tag>），即仓库右侧的 Packages。
+#   macOS runner 没有 Docker，因此用 oras 推送，不经过容器构建。
+#   手动运行只产出 artifact，不发布，避免占用版本号。
 
 on:
   workflow_dispatch:
@@ -23,6 +29,8 @@ on:
 
 permissions:
   contents: read
+  # 推送制品到 GHCR 需要写权限；标签以外的触发不会用到。
+  packages: write
 
 concurrency:
   group: build-dmg-${{ github.ref }}
@@ -109,6 +117,54 @@ jobs:
           path: CodeEdit/build/*.dmg
           if-no-files-found: error
           retention-days: 14
+
+      # ── 以下步骤只在推 tag 时执行：把 dmg 发布到 GHCR（仓库右侧 Packages）──
+
+      - name: Install oras
+        if: startsWith(github.ref, 'refs/tags/v')
+        # macOS runner 没有 Docker，无法用 buildx 打包镜像；
+        # oras 可以把任意文件作为 OCI 制品推送，正适合分发 dmg。
+        run: |
+          set -euo pipefail
+          ORAS_VERSION="1.2.2"
+          case "$(uname -m)" in
+            arm64) ARCH="arm64" ;;
+            x86_64) ARCH="amd64" ;;
+            *) echo "不支持的架构: $(uname -m)"; exit 1 ;;
+          esac
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL \
+            "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_darwin_${ARCH}.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin" oras
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/oras" version
+
+      - name: Push DMG to GHCR
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: CodeEdit/build
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          DMG="$(ls *.dmg | head -1)"
+          # GHCR 镜像名必须全小写：GITHUB_REPOSITORY_OWNER 可能是 ShadowHunt-yi。
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/qiyide"
+
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          # org.opencontainers.image.source 决定该包是否关联到本仓库，
+          # 缺这一条会出现「Packages 里能看到，但仓库页不显示」。
+          oras push "${IMAGE}:${TAG}" \
+            --artifact-type "application/vnd.qiyide.dmg.v1" \
+            --annotation "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --annotation "org.opencontainers.image.version=${TAG}" \
+            --annotation "org.opencontainers.image.title=${DMG}" \
+            "${DMG}:application/octet-stream"
+
+          oras manifest fetch "${IMAGE}:${TAG}" | head -20
+          echo "已发布: ${IMAGE}:${TAG}"
+          echo "重新下载: oras pull ${IMAGE}:${TAG}"
 
       - name: Upload build log on failure
         if: failure()
