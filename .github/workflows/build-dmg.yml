@@ -144,14 +144,15 @@ jobs:
         working-directory: CodeEdit/build
         env:
           TAG: ${{ github.ref_name }}
+          # 通过环境变量传入：避免 token 出现在命令行参数里（ps 可见）。
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           DMG="$(ls *.dmg | head -1)"
           # GHCR 镜像名必须全小写：GITHUB_REPOSITORY_OWNER 可能是 ShadowHunt-yi。
           IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/qiyide"
 
-          echo "${{ secrets.GITHUB_TOKEN }}" \
-            | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          printf '%s' "$GH_TOKEN" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
 
           # org.opencontainers.image.source 决定该包是否关联到本仓库，
           # 缺这一条会出现「Packages 里能看到，但仓库页不显示」。
