@@ -83,8 +83,13 @@ Qiyide 在 CodeEdit 的基础上做产品化与工程化改造：可以与原版
 ./scripts/package-dmg.sh Release  # → build/Qiyide-<版本>-<build>.dmg
 ```
 
-**云端**：Actions → `Build DMG` → Run workflow；或推送 `v*` 标签自动构建并发布
-`ghcr.io/shadowhunt-yi/qiyide:<tag>`。
+**云端**：Actions → `Build DMG` → Run workflow；或推送 `v*` 标签自动构建，发布时会同时产出三处：
+
+| 位置 | 用途 |
+| --- | --- |
+| **Releases** 页 | 直接下载 dmg（`Qiyide-<版本>-<build>.dmg`），推荐 |
+| **Packages**（GHCR） | `ghcr.io/shadowhunt-yi/qiyide:<tag>`，用 `oras pull` 获取 |
+| run 的 **Artifacts** | 临时构建产物，保留 14 天 |
 
 > 产物为 ad-hoc 签名，首次打开需右键 → 打开，或 `xattr -dr com.apple.quarantine /Applications/Qiyide.app`。
 
