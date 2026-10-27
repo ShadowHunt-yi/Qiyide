@@ -22,7 +22,7 @@ extension ProjectNavigatorViewController: NSMenuDelegate {
         if row == -1 {
             menu.item = nil
         } else {
-            if let item = outlineView.item(atRow: row) as? CEWorkspaceFile {
+            if let item = fileItem(for: outlineView.item(atRow: row)) {
                 menu.item = item
             } else {
                 menu.item = nil

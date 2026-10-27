@@ -307,7 +307,11 @@ extension ProjectNavigatorMenu {
     }
 
     private func reloadData() {
-        sender.outlineView.reloadData()
+        // 先失效过滤缓存再重载：文件增删后过滤结果需要重新计算，
+        // 反过来（先 reload 再清缓存）会让树显示旧结果。
         sender.filteredContentChildren.removeAll()
+        sender.invalidateDisplayChildrenCache()
+        sender.invalidateCompactItems()
+        sender.outlineView.reloadData()
     }
 }

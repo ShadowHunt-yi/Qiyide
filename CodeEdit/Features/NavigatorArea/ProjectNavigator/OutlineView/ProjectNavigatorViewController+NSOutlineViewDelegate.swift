@@ -24,6 +24,19 @@ extension ProjectNavigatorViewController: NSOutlineViewDelegate {
         guard let tableColumn else { return nil }
 
         let frameRect = NSRect(x: 0, y: 0, width: tableColumn.width, height: rowHeight)
+        // 紧凑目录链：用终点文件决定图标，标签显示整条链，禁止行内改名。
+        if let compact = item as? ProjectNavigatorCompactItem {
+            let cell = ProjectNavigatorTableViewCell(
+                frame: frameRect,
+                item: compact.terminal,
+                isEditable: false,
+                delegate: self,
+                navigatorFilter: workspace?.navigatorFilter
+            )
+            cell.textField?.stringValue = compact.displayPath
+            cell.textField?.setAccessibilityIdentifier("ProjectNavigatorTableViewCell-\(compact.displayPath)")
+            return cell
+        }
         let cell = ProjectNavigatorTableViewCell(
             frame: frameRect,
             item: item as? CEWorkspaceFile,
@@ -41,8 +54,29 @@ extension ProjectNavigatorViewController: NSOutlineViewDelegate {
 
         /// If only one row is selected, proceed as before
         let selectedIndex = outlineView.selectedRow
+        let rawItem = outlineView.item(atRow: selectedIndex)
 
-        guard let item = outlineView.item(atRow: selectedIndex) as? CEWorkspaceFile else { return }
+        // 紧凑目录链：文件链单击打开文件；目录链单击展开/收起。
+        if let compact = rawItem as? ProjectNavigatorCompactItem {
+            if compact.isFile {
+                if shouldSendSelectionUpdate {
+                    shouldSendSelectionUpdate = false
+                    if workspace?.editorManager?.activeEditor.selectedTab?.file != compact.terminal {
+                        workspace?.editorManager?.activeEditor.openTab(file: compact.terminal, asTemporary: true)
+                    }
+                    shouldSendSelectionUpdate = true
+                }
+            } else {
+                if outlineView.isItemExpanded(compact) {
+                    outlineView.collapseItem(compact)
+                } else {
+                    outlineView.expandItem(compact)
+                }
+            }
+            return
+        }
+
+        guard let item = rawItem as? CEWorkspaceFile else { return }
 
         if !item.isFolder && shouldSendSelectionUpdate {
             shouldSendSelectionUpdate = false
@@ -91,7 +125,7 @@ extension ProjectNavigatorViewController: NSOutlineViewDelegate {
     }
 
     func outlineView(_ outlineView: NSOutlineView, persistentObjectForItem item: Any?) -> Any? {
-        guard let item = item as? CEWorkspaceFile else { return nil }
+        guard let item = fileItem(for: item) else { return nil }
         return item.id
     }
 
@@ -110,7 +144,11 @@ extension ProjectNavigatorViewController: NSOutlineViewDelegate {
         if Settings.shared.preferences.general.revealFileOnFocusChange || forcesReveal {
             reveal(item)
         }
-        let row = outlineView.row(forItem: item)
+        var row = outlineView.row(forItem: item)
+        if row == -1, let compact = compactItem(containing: item) {
+            // 文件被合并在紧凑目录链里时，选中承载它的链行。
+            row = outlineView.row(forItem: compact)
+        }
         if row == -1 {
             outlineView.deselectRow(outlineView.selectedRow)
         }
@@ -126,7 +164,11 @@ extension ProjectNavigatorViewController: NSOutlineViewDelegate {
         if let parent = fileItem.parent {
             expandParent(item: parent)
         }
-        let row = outlineView.row(forItem: fileItem)
+        var row = outlineView.row(forItem: fileItem)
+        if row == -1, let compact = compactItem(containing: fileItem) {
+            // 文件被合并在紧凑目录链里时，转为揭示承载它的链行。
+            row = outlineView.row(forItem: compact)
+        }
         shouldSendSelectionUpdate = false
         outlineView.selectRowIndexes(.init(integer: row), byExtendingSelection: false)
         shouldSendSelectionUpdate = true
@@ -176,6 +218,10 @@ extension ProjectNavigatorViewController: NSOutlineViewDelegate {
         item: Any,
         mouseLocation: NSPoint
     ) -> String {
+        if let compact = item as? ProjectNavigatorCompactItem {
+            // 紧凑链标签可能被截断，提示里给完整路径。
+            return compact.terminal.url.path(percentEncoded: false)
+        }
         if let file = item as? CEWorkspaceFile {
             return file.name
         }

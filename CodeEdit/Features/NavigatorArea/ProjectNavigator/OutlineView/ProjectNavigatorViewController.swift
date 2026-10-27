@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import WelcomeWindow
 import SwiftUI
 import OSLog
 
@@ -39,7 +40,19 @@ final class ProjectNavigatorViewController: NSViewController {
     }
 
     var filteredContentChildren: [CEWorkspaceFile: [CEWorkspaceFile]] = [:]
+    /// 紧凑目录链显示项的缓存，以链终点路径为键。
+    /// NSOutlineView 的展开状态绑定条目身份，缓存保证多次数据源调用返回同一实例。
+    var compactItemCache: [String: ProjectNavigatorCompactItem] = [:]
+    /// 路径 → 承载该文件的紧凑条目，供选中/揭示 O(1) 反查（原来是遍历整个缓存）。
+    var compactItemByMemberPath: [String: ProjectNavigatorCompactItem] = [:]
+    /// 每层「展示子项」的缓存（排序 + 紧凑链）。
+    ///
+    /// NSOutlineView 取 k 个子项时会调用 k 次 `child(index:)`，若每次都重建整层，
+    /// 单层成本就是 O(k² log k)——大目录（上千项）会明显卡顿。缓存按数据「代」失效。
+    var displayChildrenCache: [String: [Any]] = [:]
     var expandedItems: Set<CEWorkspaceFile> = []
+    /// 「无过滤结果」状态重算的递归保护（设置 isHidden 会触发布局，布局里又会重算）。
+    private var isUpdatingNoResultsState = false
 
     weak var workspace: WorkspaceDocument?
     weak var editor: Editor?
@@ -100,6 +113,15 @@ final class ProjectNavigatorViewController: NSViewController {
 
         outlineView.expandItem(outlineView.item(atRow: 0))
 
+        // 一键折叠/展开的外部入口（底部工具栏按钮、Navigate 菜单）通过通知触发，
+        // 不依赖响应链，任意焦点状态下都生效。
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(collapseAllFolders(_:)),
+            name: .projectNavigatorCollapseAll,
+            object: nil
+        )
+
         /// Get autosave expanded items.
         for row in 0..<outlineView.numberOfRows {
             if let item = outlineView.item(atRow: row) as? CEWorkspaceFile {
@@ -110,15 +132,17 @@ final class ProjectNavigatorViewController: NSViewController {
         }
 
         /// "No Filter Results" label.
-        noResultsLabel = NSTextField(labelWithString: "No Filter Results")
+        /// 挂在 scrollView（可视区容器）而不是 outlineView（文档视图）上：
+        /// 后者的高度等于整棵树的内容高度，居中后会压在某一行上（且随内容滚动）。
+        noResultsLabel = NSTextField(labelWithString: NSLocalizedString("No Filter Results", comment: ""))
         noResultsLabel.isHidden = true
         noResultsLabel.font = NSFont.systemFont(ofSize: 16)
         noResultsLabel.textColor = NSColor.secondaryLabelColor
-        outlineView.addSubview(noResultsLabel)
+        scrollView.addSubview(noResultsLabel)
         noResultsLabel.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            noResultsLabel.centerXAnchor.constraint(equalTo: outlineView.centerXAnchor),
-            noResultsLabel.centerYAnchor.constraint(equalTo: outlineView.centerYAnchor)
+            noResultsLabel.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
+            noResultsLabel.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor)
         ])
     }
 
@@ -153,6 +177,7 @@ final class ProjectNavigatorViewController: NSViewController {
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self)
         outlineView?.removeFromSuperview()
         scrollView?.removeFromSuperview()
         noResultsLabel?.removeFromSuperview()
@@ -187,7 +212,23 @@ final class ProjectNavigatorViewController: NSViewController {
         /// If there are multiples items selected, don't do anything, just like in Xcode.
         guard outlineView.selectedRowIndexes.count == 1 else { return }
 
-        guard let item = outlineView.item(atRow: outlineView.clickedRow) as? CEWorkspaceFile else { return }
+        let rawItem = outlineView.item(atRow: outlineView.clickedRow)
+
+        // 紧凑目录链：文件链双击打开文件；目录链展开/收起。
+        if let compact = rawItem as? ProjectNavigatorCompactItem {
+            if compact.isFile {
+                if Settings[\.navigation].navigationStyle == .openInTabs {
+                    workspace?.editorManager?.activeEditor.openTab(file: compact.terminal, asTemporary: false)
+                }
+            } else if outlineView.isItemExpanded(compact) {
+                outlineView.collapseItem(compact)
+            } else {
+                outlineView.expandItem(compact)
+            }
+            return
+        }
+
+        guard let item = rawItem as? CEWorkspaceFile else { return }
 
         if item.isFolder {
             if outlineView.isItemExpanded(item) {
@@ -211,14 +252,50 @@ final class ProjectNavigatorViewController: NSViewController {
         }
     }
 
+    // MARK: - 一键折叠 / 展开（类 VS Code）
+
+    /// 一键收起所有目录（含紧凑目录链）。
+    ///
+    /// 与手动逐个收起等价：所有节点回到收起态，`expandedItems` 缓存同步清空，
+    /// 之后手动展开单个节点不受影响。
+    @objc func collapseAllFolders(_ sender: Any?) {
+        let started = CFAbsoluteTimeGetCurrent()
+        defer {
+            PerformanceRecorder.shared.record(
+                startedAt: started,
+                category: .treeExpand,
+                meta: ["op": "collapse", "rows": "\(outlineView.numberOfRows)"]
+            )
+        }
+        // 关闭插入/删除动画：大量行同时变化时逐行动画会长时间占用主线程。
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            outlineView.beginUpdates()
+            for item in content where outlineView.isItemExpanded(item) {
+                outlineView.collapseItem(item, collapseChildren: true)
+            }
+            outlineView.endUpdates()
+        }
+        expandedItems.removeAll()
+        updateNoResultsState()
+        outlineView.needsDisplay = true
+    }
+
+    /// 一键展开所有目录（含紧凑目录链）。
+    ///
+    /// 深层级一次性全部展开；大目录树下用 beginUpdates 批量更新避免逐项重绘。
     func handleFilterChange() {
+        rebuildRecentsFilterPaths()
         filteredContentChildren.removeAll()
+        invalidateDisplayChildrenCache()
+        invalidateCompactItems()
         outlineView.reloadData()
 
         guard let workspace else { return }
 
         /// If the filter is empty, show all items and restore the expanded state.
-        if workspace.sourceControlFilter || !filterIsEmpty {
+        // 「最近文件」过滤同样需要展开匹配路径，否则结果藏在折叠目录里会被误判为无结果。
+        if workspace.sourceControlFilter || workspace.navigatorRecentsFilter || !filterIsEmpty {
             outlineView.autosaveExpandedItems = false
             /// Expand all items for search.
             outlineView.expandItem(outlineView.item(atRow: 0), expandChildren: true)
@@ -227,30 +304,111 @@ final class ProjectNavigatorViewController: NSViewController {
             outlineView.autosaveExpandedItems = true
         }
 
-        if let root = content.first(where: { $0.isRoot }), let children = filteredContentChildren[root] {
-            if children.isEmpty {
-                noResultsLabel.isHidden = false
-                outlineView.hideRows(at: IndexSet(integer: 0))
-            } else {
-                noResultsLabel.isHidden = true
-            }
+        updateNoResultsState()
+    }
+
+    /// 清空「展示子项」缓存。文件增删、重载都会调用；
+    /// 不动紧凑条目缓存——否则每次文件变动都会换掉条目身份，已展开的链条目会被折叠。
+    func invalidateDisplayChildrenCache() {
+        displayChildrenCache.removeAll()
+    }
+
+    /// 清空紧凑目录链条目缓存（过滤变化、结构性文件操作时使用）。
+    func invalidateCompactItems() {
+        compactItemCache.removeAll()
+        compactItemByMemberPath.removeAll()
+    }
+
+    /// 当前是否有任何过滤维度生效（搜索文本、源代码管理、最近文件）。
+    private var isFiltering: Bool {
+        guard let workspace else { return false }
+        return !filterIsEmpty || workspace.sourceControlFilter || workspace.navigatorRecentsFilter
+    }
+
+    /// 统一刷新「无过滤结果」提示与树的可见性。
+    ///
+    /// 关键不变式：**标签与树互斥**。此前的实现只切换标签的 `isHidden`，
+    /// 一旦行数在「未走 reloadData 的路径」上变化（文件监听的 `reloadItem`、
+    /// 展开/折叠），标签就不会重新推导，于是残留并压住文件行（截图现象）。
+    /// 现在改为：过滤中且树上除根行外无内容 → 显示提示并隐藏整棵树；
+    /// 其余情况一律恢复树、隐藏提示。两条分支互斥，任何状态下都不可能同时可见。
+    func updateNoResultsState() {
+        guard !isUpdatingNoResultsState else { return }
+
+        guard let noResultsLabel, let outlineView else { return }
+
+        // 未过滤是绝大多数情况：直接返回，避免触碰 `numberOfRows`。
+        // `numberOfRows` 会强制 outline view 计算行数，若在布局/插入过程中频繁调用，
+        // 「全部展开」这类插入上万行的操作会退化成 O(n²)（表现为界面卡死）。
+        guard isFiltering else {
+            if !noResultsLabel.isHidden { noResultsLabel.isHidden = true }
+            if outlineView.isHidden { outlineView.isHidden = false }
+            return
+        }
+
+        isUpdatingNoResultsState = true
+        defer { isUpdatingNoResultsState = false }
+
+        // numberOfRows 含根行；仅根行可见即等价于「没有任何匹配结果」。
+        let isEmpty = outlineView.numberOfRows <= 1
+        if noResultsLabel.isHidden == isEmpty {
+            noResultsLabel.isHidden = !isEmpty
+        }
+        if outlineView.isHidden != isEmpty {
+            outlineView.isHidden = isEmpty
         }
     }
 
+    /// 最近文件过滤用的路径集合：最近打开过的文件 + 其全部祖先目录。
+    /// 由 ``handleFilterChange`` 重建；逐项匹配走 O(1) 集合查找，不递归扫盘。
+    private var recentsFilterPaths: Set<String> = []
+
+    /// 重建最近文件路径集合（仅在「只显示最近」开启时）。
+    private func rebuildRecentsFilterPaths() {
+        guard workspace?.navigatorRecentsFilter == true else {
+            recentsFilterPaths = []
+            return
+        }
+        var paths: Set<String> = []
+        for url in RecentsStore.recentFileURLs() {
+            var path = url.standardizedFileURL.path
+            while path.count > 1 {
+                paths.insert(path)
+                let parent = (path as NSString).deletingLastPathComponent
+                if parent == path { break }
+                path = parent
+            }
+        }
+        recentsFilterPaths = paths
+    }
+
     /// Checks if the given filter matches the name of the item or any of its children.
+    ///
+    /// 维度之间是「与」关系：名字（或源代码管理状态）命中 + 最近文件集合命中。
+    /// 最近过滤不展开匹配目录的全部子项（``saveAllContentChildren``），否则集合过滤失去意义。
     func fileSearchMatches(_ filter: String, for item: CEWorkspaceFile, sourceControlFilter: Bool) -> Bool {
-        guard !filterIsEmpty || sourceControlFilter else {
+        let recentsOnly = workspace?.navigatorRecentsFilter == true
+        guard !filterIsEmpty || sourceControlFilter || recentsOnly else {
             return true
         }
+        if recentsOnly && !recentsFilterPaths.contains(item.url.path) {
+            return false
+        }
 
+        let selfMatch: Bool
         if sourceControlFilter {
-            if item.gitStatus != nil && item.gitStatus != GitStatus.none &&
-                (filterIsEmpty || item.name.localizedCaseInsensitiveContains(filter)) {
+            selfMatch = item.gitStatus != nil && item.gitStatus != GitStatus.none &&
+                (filterIsEmpty || item.name.localizedCaseInsensitiveContains(filter))
+        } else if filterIsEmpty {
+            selfMatch = true
+        } else {
+            selfMatch = item.name.localizedCaseInsensitiveContains(filter)
+        }
+
+        if selfMatch {
+            if !recentsOnly {
                 saveAllContentChildren(for: item)
-                return true
             }
-        } else if item.name.localizedCaseInsensitiveContains(filter) {
-            saveAllContentChildren(for: item)
             return true
         }
 
@@ -297,4 +455,9 @@ final class ProjectNavigatorViewController: NSViewController {
             outlineView.expandItem(parent)
         }
     }
+}
+
+extension Notification.Name {
+    /// 一键收起项目导航器的所有目录。
+    static let projectNavigatorCollapseAll = Notification.Name("ProjectNavigatorCollapseAll")
 }

@@ -16,6 +16,8 @@ final class WorkspaceDocument: NSDocument, ObservableObject, NSToolbarDelegate {
     @Published var sortFoldersOnTop: Bool = true
     /// A string used to filter the displayed files and folders in the project navigator area based on user input.
     @Published var navigatorFilter: String = ""
+    /// 文件树「只显示最近打开过的文件」过滤开关（底部工具栏时钟按钮）。
+    @Published var navigatorRecentsFilter: Bool = false
     /// Whether the workspace only shows files with changes.
     @Published var sourceControlFilter = false
 

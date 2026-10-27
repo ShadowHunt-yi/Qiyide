@@ -76,13 +76,22 @@ final class CEWorkspaceFile: Codable, Comparable, Hashable, Identifiable, Editor
     }
 
     /// Return the icon of the file as `NSImage`
+    /// 图标按符号名缓存：同一文件类型只创建一次 NSImage。
+    ///
+    /// 原实现每次访问都新建 `NSImage(systemSymbolName:)`，导航器滚动/重绘时
+    /// 每行每帧都会分配一次（上千行滚动时是持续的对象分配 + 释放）。
+    private static var symbolIconCache: [String: NSImage] = [:]
+
     var nsIcon: NSImage {
-        if let customImage = NSImage.symbol(named: systemImage) {
-            return customImage
-        } else {
-            return NSImage(systemSymbolName: systemImage, accessibilityDescription: systemImage)
-                ?? NSImage(systemSymbolName: "doc", accessibilityDescription: "doc")!
+        let symbol = systemImage
+        if let cached = Self.symbolIconCache[symbol] {
+            return cached
         }
+        let image = NSImage.symbol(named: symbol)
+            ?? NSImage(systemSymbolName: symbol, accessibilityDescription: symbol)
+            ?? NSImage(systemSymbolName: "doc", accessibilityDescription: "doc")!
+        Self.symbolIconCache[symbol] = image
+        return image
     }
 
     /// Returns a parent ``CEWorkspaceFile``.

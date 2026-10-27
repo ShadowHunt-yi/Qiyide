@@ -17,12 +17,14 @@ struct ProjectNavigatorToolbarBottom: View {
     @EnvironmentObject var workspace: WorkspaceDocument
     @EnvironmentObject var editorManager: EditorManager
 
-    @State var recentsFilter: Bool = false
-
     var body: some View {
         NavigatorFilterView(
             text: $workspace.navigatorFilter,
-            hasValue: { !workspace.navigatorFilter.isEmpty || recentsFilter || workspace.sourceControlFilter },
+            hasValue: {
+                !workspace.navigatorFilter.isEmpty
+                    || workspace.navigatorRecentsFilter
+                    || workspace.sourceControlFilter
+            },
             menu: { addNewFileButton },
             leadingAccessories: { leadingAccessories },
             trailingAccessories: { trailingAccessories }
@@ -53,7 +55,18 @@ struct ProjectNavigatorToolbarBottom: View {
 
     @ViewBuilder private var trailingAccessories: some View {
         HStack(spacing: 0) {
-            Toggle(isOn: $recentsFilter) {
+            // 一键收起全部目录。（「全部展开」已移除：大树下必然造成主线程长任务）
+            Button {
+                NotificationCenter.default.post(name: .projectNavigatorCollapseAll, object: nil)
+            } label: {
+                Image(systemName: "chevron.up")
+                    .frame(width: 18, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .help(NSLocalizedString("Collapse All Folders", comment: ""))
+
+            // 只显示最近打开过的文件（真正参与过滤，不再是只改高亮的空开关）。
+            Toggle(isOn: $workspace.navigatorRecentsFilter) {
                 Image(systemName: "clock")
             }
             .help("Show only recent files")

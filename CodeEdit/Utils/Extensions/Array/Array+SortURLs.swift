@@ -13,18 +13,22 @@ extension Array where Element == URL {
     /// - Parameter foldersOnTop: if set to `true` folders will always be on top of files.
     /// - Returns: A sorted array of `URL`
     func sortItems(foldersOnTop: Bool) -> [URL] {
-        return self.sorted { lhs, rhs in
-            let lhsIsDir = (try? lhs.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            let rhsIsDir = (try? rhs.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        guard count > 1 else { return self }
 
-            if foldersOnTop {
-                if lhsIsDir != rhsIsDir {
-                    return lhsIsDir
-                }
-            }
-
-            return compareNaturally(lhs.lastPathComponent, rhs.lastPathComponent)
+        // 预取排序键：`resourceValues` 是磁盘 stat，写在比较器里会被排序调用
+        // O(n log n) 次——一个上千项的目录就是上万次系统调用。
+        // 预取后每个元素只查一次，并同时缓存 lastPathComponent。
+        let keyed = map { url -> (url: URL, isDirectory: Bool, name: String) in
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            return (url, isDirectory, url.lastPathComponent)
         }
+
+        return keyed.sorted { lhs, rhs in
+            if foldersOnTop, lhs.isDirectory != rhs.isDirectory {
+                return lhs.isDirectory
+            }
+            return compareNaturally(lhs.name, rhs.name)
+        }.map(\.url)
     }
 
     /// Compare two strings using natural sorting.
