@@ -19,7 +19,8 @@ struct GitChangedFileLabel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         } icon: {
-            if let ceFile = workspace.workspaceFileManager?.getFile(file.ceFileKey, createIfNotFound: true) {
+            // 同上：渲染不建树，未索引到就用系统图标兜底。
+            if let ceFile = workspace.workspaceFileManager?.getFile(file.ceFileKey) {
                 Image(nsImage: ceFile.nsIcon)
                     .renderingMode(.template)
             } else {

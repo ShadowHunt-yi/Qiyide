@@ -51,13 +51,18 @@ struct GitChangedFileListView: View {
         }
         .listItemTint(listItemTint)
         .help(changedFile.fileURL.relativePath)
+        // 拖拽到编辑区打开完整文件；与单击（显示差异）互不影响。
+        .onDrag {
+            NSItemProvider(object: changedFile.fileURL as NSURL)
+        }
         .onChange(of: changedFile.isStaged) { _, newStaged in
             staged = newStaged
         }
     }
 
     private var listItemTint: Color {
-        if let ceFile = workspace.workspaceFileManager?.getFile(changedFile.ceFileKey, createIfNotFound: true) {
+        // 渲染路径只查缓存：createIfNotFound 会为每个可见行做文件系统索引，滚动时卡顿。
+        if let ceFile = workspace.workspaceFileManager?.getFile(changedFile.ceFileKey) {
             iconForegroundColor(ceFile)
         } else {
             iconForegroundColor(nil)

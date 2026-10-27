@@ -41,7 +41,9 @@ struct SourceControlNavigatorView: View {
                     if let manager = workspace.sourceControlManager {
                         try? await manager.fetch()
                     }
-                    try? await Task.sleep(for: .seconds(10))
+                    // 与 VS Code 的 git.autofetch 默认值对齐（180 秒）。
+                // 原先 10 秒一次等于常驻进程唤醒 + 网络开销。
+                try? await Task.sleep(for: .seconds(180))
                 }
             }
         }
