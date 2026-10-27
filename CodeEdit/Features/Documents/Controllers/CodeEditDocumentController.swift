@@ -124,8 +124,14 @@ final class CodeEditDocumentController: NSDocumentController {
     override func removeDocument(_ document: NSDocument) {
         super.removeDocument(document)
 
-        if let workspace = document as? WorkspaceDocument, let path = workspace.fileURL?.absoluteURL.path() {
-            lspService.closeWorkspace(path)
+        if let workspace = document as? WorkspaceDocument {
+            // 多根工作区里每个根目录各自持有一套语言服务器会话（键是根路径），
+            // 只关主根会留下次要根的进程；这里按全部根逐个关闭。
+            let roots = workspace.workspaceFileManager?.rootUrls.map { $0.path } ?? []
+            let paths = roots.isEmpty
+                ? [workspace.fileURL?.absoluteURL.path()].compactMap { $0 }
+                : roots
+            paths.forEach { lspService.closeWorkspace($0) }
         }
 
         if CodeEditDocumentController.shared.documents.isEmpty {

@@ -20,6 +20,11 @@ final class HistoryInspectorModel: ObservableObject {
     @Published var commitHistory: [GitCommit] = []
 
     func setWorkspace(sourceControlManager: SourceControlManager?) async {
+        // 同一仓库不重复拉取历史：该函数会在切换标签时随文件一起调用，
+        // 重复刷新会让每次光标移动都触发一次 `git log`。
+        if self.sourceControlManager === sourceControlManager {
+            return
+        }
         self.sourceControlManager = sourceControlManager
         await updateCommitHistory()
     }

@@ -45,28 +45,34 @@ struct HistoryInspectorView: View {
             }
         }
         .onReceive(editorManager.activeEditor.objectWillChange) { _ in
-            Task {
-                await model.setFile(url: editorManager.activeEditor.selectedTab?.file.url.path())
-            }
+            Task { await syncActiveFileRepository() }
         }
         .onChange(of: editorManager.activeEditor) { _, _ in
-            Task {
-                await model.setFile(url: editorManager.activeEditor.selectedTab?.file.url.path())
-            }
+            Task { await syncActiveFileRepository() }
         }
         .onChange(of: editorManager.activeEditor.selectedTab) { _, _ in
-            Task {
-                await model.setFile(url: editorManager.activeEditor.selectedTab?.file.url.path())
-            }
+            Task { await syncActiveFileRepository() }
         }
         .task {
-            await model.setWorkspace(sourceControlManager: workspace.sourceControlManager)
-            await model.setFile(url: editorManager.activeEditor.selectedTab?.file.url.path)
+            await syncActiveFileRepository()
         }
         .onChange(of: showMergeCommitsPerFileLog) { _, _ in
             Task {
                 await model.updateCommitHistory()
             }
         }
+    }
+
+    /// 让历史面板同时跟随「当前文件」与「该文件所属的仓库」。
+    ///
+    /// 多根工作区下 `workspace.sourceControlManager` 只代表当前活动仓库，
+    /// 若正在查看另一个仓库中的文件，历史会错误地显示活动仓库的提交。
+    private func syncActiveFileRepository() async {
+        let fileURL = editorManager.activeEditor.selectedTab?.file.url
+        let manager = fileURL.flatMap {
+            workspace.sourceControlWorkspace?.manager(containingFileAt: $0)
+        } ?? workspace.sourceControlManager
+        await model.setWorkspace(sourceControlManager: manager)
+        await model.setFile(url: fileURL?.path())
     }
 }

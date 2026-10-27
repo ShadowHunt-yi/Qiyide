@@ -212,7 +212,7 @@ final class LSPService: ObservableObject {
     /// - Parameter document: The code document that was opened.
     func openDocument(_ document: CodeFileDocument) {
         guard let workspace = document.findWorkspace(),
-              let workspacePath = workspace.fileURL?.absolutePath,
+              let workspacePath = Self.workspacePath(for: document.fileURL, in: workspace),
               let lspLanguage = document.getLanguage().lspLanguage else {
             return
         }
@@ -284,6 +284,31 @@ final class LSPService: ObservableObject {
                 self.languageClients.removeValue(forKey: key)
             }
         }
+    }
+
+    /// 计算某个文件所属的工作区根目录路径。
+    ///
+    /// 多根工作区下每个根目录是一个独立项目，语言服务器的 `rootUri` 必须指向
+    /// **文件所在的根**：原先统一取工作区主根，次要根中的文件会拿主根的项目配置
+    /// （tsconfig.json / pyproject.toml / go.mod 等）去解析，导致跳转、诊断与补全错位。
+    /// - Parameters:
+    ///   - fileURL: 文档的文件 URL；`nil` 时退回主根。
+    ///   - workspace: 文档所属工作区。
+    /// - Returns: 用于语言服务器会话键的根目录路径。
+    static func workspacePath(for fileURL: URL?, in workspace: WorkspaceDocument) -> String? {
+        let roots = workspace.workspaceFileManager?.rootUrls ?? []
+        guard let fileURL else {
+            return roots.first?.path ?? workspace.fileURL?.path
+        }
+        let path = fileURL.standardizedFileURL.path
+        // 取最长前缀匹配：嵌套根目录时归属更具体的那个根。
+        let containing = roots
+            .filter { root in
+                let rootPath = root.standardizedFileURL.path
+                return path == rootPath || path.hasPrefix(rootPath + "/")
+            }
+            .max { $0.path.count < $1.path.count }
+        return (containing ?? roots.first ?? workspace.fileURL)?.path
     }
 
     /// 归一化工作区路径，消除尾部斜杠、`..` 等差异带来的键不匹配。
