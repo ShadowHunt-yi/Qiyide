@@ -11,9 +11,10 @@ name: Build DMG
 #   3. runner 架构不固定，构建目标通过 BUILD_DESTINATION 覆盖为 generic/platform=macOS。
 #
 # 发布：
-#   推 v* 标签时，除上传 workflow artifact 外，还会把 dmg 作为 OCI 制品推送到
-#   GHCR（ghcr.io/<owner>/qiyide:<tag>），即仓库右侧的 Packages。
-#   macOS runner 没有 Docker，因此用 oras 推送，不经过容器构建。
+#   推 v* 标签时，除上传 workflow artifact 外，还会：
+#     1. 把 dmg 作为 OCI 制品推送到 GHCR（ghcr.io/<owner>/qiyide:<tag>），即仓库右侧 Packages；
+#     2. 创建 GitHub Release，把 dmg 作为附件上传（Releases 页可直接下载）。
+#   macOS runner 没有 Docker，因此 GHCR 用 oras 推送，不经过容器构建。
 #   手动运行只产出 artifact，不发布，避免占用版本号。
 
 on:
@@ -28,7 +29,8 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  # 创建 GitHub Release 并上传附件需要写权限。
+  contents: write
   # 推送制品到 GHCR 需要写权限；标签以外的触发不会用到。
   packages: write
 
@@ -171,6 +173,45 @@ jobs:
           oras manifest fetch "${IMAGE}:${TAG}" | head -20
           echo "已发布: ${IMAGE}:${TAG}"
           echo "重新下载: oras pull ${IMAGE}:${TAG}"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: CodeEdit
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DMG_PATH="$(ls build/*.dmg | head -1)"
+          DMG_NAME="$(basename "$DMG_PATH")"
+
+          # 发布说明直接取注释标签的正文，避免维护两份变更记录。
+          NOTES="$(git tag -l --format='%(contents)' "$TAG")"
+          NOTES="${NOTES}
+
+          ---
+          安装：打开 ${DMG_NAME}，把 Qiyide.app 拖入「应用程序」。
+
+          本构建未做 Developer ID 签名与公证，首次启动会被 Gatekeeper 拦截：
+          右键 → 打开，或执行
+          xattr -dr com.apple.quarantine /Applications/Qiyide.app
+
+          校验：
+          $(shasum -a 256 "$DMG_PATH")"
+
+          # 标签重跑时 Release 可能已存在：只替换附件，不重复创建。
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release ${TAG} 已存在，替换附件"
+            gh release upload "$TAG" "$DMG_PATH" --clobber
+          else
+            gh release create "$TAG" "$DMG_PATH" \
+              --title "Qiyide ${TAG}" \
+              --notes "$NOTES" \
+              --verify-tag
+          fi
+
+          gh release view "$TAG" --json url,tagName,assets \
+            --jq '"Release: \(.url)", (.assets[] | "附件: \(.name)  \(.size) 字节")'
 
       - name: Upload build log on failure
         if: failure()
