@@ -1,0 +1,19 @@
+CodeEdit/Features/UtilityArea/TerminalUtility/UtilityAreaTerminalSidebar.swift
+  s_c769df6767aed6::t_218804572f9dca 8,17-20,42-56,59-66,88-94,96-99,101-124,131-132,137-155,176-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "3d929b4dd9c55f02ed890b94a27f68e8728ca655",
+  "prompts": {},
+  "sessions": {
+    "s_c769df6767aed6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e87a03a-c136-4ac7-884f-358f6441e8d7",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
