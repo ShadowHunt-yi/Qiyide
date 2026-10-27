@@ -1,0 +1,48 @@
+CodeEdit/Features/NavigatorArea/ProjectNavigator/OutlineView/ProjectNavigatorViewController.swift
+  s_c769df6767aed6::t_bdc300b29cedca 54-55,229,269,278,328,330-334,336-348,356,359,371,396,406
+  s_c769df6767aed6::t_b7f0173be1f2c3 49,135-137,141,144-145,258,280,282,285,307-327,329,335,360,386
+  s_c769df6767aed6::t_2c33b4e76905b6 297-298
+  s_c769df6767aed6::t_abc6fee2bc980b 46-48
+  s_c769df6767aed6::t_d1e8ccfd6930ba 50-52
+  s_c769df6767aed6::t_57a12813b472e4 226-228
+  s_c769df6767aed6::t_85502d35292007 230-231
+  s_c769df6767aed6::t_0ca19b1833b5b8 255-257
+  s_c769df6767aed6::t_94cc7c233f4d18 259-261,266-268
+  s_c769df6767aed6::t_d4f9e238433678 270-272,275-277
+  s_c769df6767aed6::t_0fe6a9a1f73f28 279
+  s_c769df6767aed6::t_490e1481acbd3a 281
+  s_c769df6767aed6::t_c33c7f8dd193d3 283-284
+  s_c769df6767aed6::t_52deb913bd5494 286
+  s_c769df6767aed6::t_2b9c632f4f5915 349-351,353-355
+  s_c769df6767aed6::t_26917984e4a716 357-358
+  s_c769df6767aed6::t_5e109f66c9f34b 361-363,368-370
+  s_c769df6767aed6::t_b0fbd4f1906190 372-374
+  s_c769df6767aed6::t_9019881921db5d 387-388
+  s_c769df6767aed6::t_ff56b0d0dde47a 394-395
+  s_c769df6767aed6::t_7e8eb47b214075 403-405
+  s_c769df6767aed6::t_d44046cf53affc 407-409
+CodeEdit/Features/NavigatorArea/ProjectNavigator/OutlineView/ProjectNavigatorMenuActions.swift
+  s_c769df6767aed6::t_b7f0173be1f2c3 310-311,313-315
+CodeEdit/Features/NavigatorArea/ProjectNavigator/OutlineView/ProjectNavigatorViewController+NSOutlineViewDataSource.swift
+  s_c769df6767aed6::t_b7f0173be1f2c3 69-72
+  s_c769df6767aed6::t_d93868a1d0df85 66-68
+  s_c769df6767aed6::t_23b4785a338136 73
+CodeEdit/Features/NavigatorArea/ProjectNavigator/OutlineView/ProjectNavigatorNSOutlineView.swift
+  s_c769df6767aed6::t_b7f0173be1f2c3 11-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "2b3119c212a8de6ac4bac07983883fc1bfb19bc6",
+  "prompts": {},
+  "sessions": {
+    "s_c769df6767aed6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e87a03a-c136-4ac7-884f-358f6441e8d7",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
