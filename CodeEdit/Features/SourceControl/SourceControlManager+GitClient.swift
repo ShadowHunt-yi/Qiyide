@@ -53,6 +53,23 @@ extension SourceControlManager {
         await refreshCurrentBranch()
     }
 
+    // MARK: - Blame
+
+    /// 取文件逐行 blame（行级标注数据源）。
+    func blameLines(for file: URL) async throws -> [GitBlameLine] {
+        try await gitClient.blameLines(for: file)
+    }
+
+    /// 取某行（或行区间）的完整变更历史。
+    func lineHistory(for file: URL, startLine: Int, endLine: Int) async throws -> [GitLineHistoryEntry] {
+        try await gitClient.lineHistory(for: file, startLine: startLine, endLine: endLine)
+    }
+
+    /// 取提交详情（stat + 说明）。
+    func commitDetail(hash: String) async throws -> String {
+        try await gitClient.commitDetail(hash: hash)
+    }
+
     // MARK: - Diff
 
     /// 获取改动文件相对 `HEAD` 的差异行，用于差异视图。
@@ -220,17 +237,17 @@ extension SourceControlManager {
             updatedStatusFor.insert(file)
         }
 
-        // 只清理本仓库范围内的状态。
-        // 多根工作区下若清理整个文件树，会抹掉其它仓库刚写入的 Git 状态标记。
-        let rootPath = workspaceURL.standardizedFileURL.path
-        for (_, file) in fileManager.flattenedFileItems
-        where !updatedStatusFor.contains(file)
-            && file.gitStatus != nil
-            && (file.url.standardizedFileURL.path == rootPath
-                || file.url.standardizedFileURL.path.hasPrefix(rootPath + "/")) {
+        // 只清理「上一轮有状态、这一轮没有」的文件。
+        //
+        // 原实现每次刷新都遍历 `flattenedFileItems` 全表，并对每个文件做
+        // `standardizedFileURL.path`（字符串标准化）——上万文件时每次刷新就是几十毫秒，
+        // 而 git 状态刷新在文件保存/构建时会高频触发。改成只遍历上一轮的集合，复杂度 O(变更数)。
+        let staleFiles = filesWithStatus.subtracting(updatedStatusFor)
+        for file in staleFiles where file.gitStatus != nil {
             file.gitStatus = nil
             updatedStatusFor.insert(file)
         }
+        filesWithStatus = updatedStatusFor
 
         if updatedStatusFor.isEmpty {
             return
@@ -241,6 +258,10 @@ extension SourceControlManager {
 
     /// Refresh all changed files and refresh status in file manager
     func refreshAllChangedFiles() async {
+        let started = PerformanceRecorder.shared.begin()
+        defer {
+            PerformanceRecorder.shared.record(startedAt: started, category: .gitStatus)
+        }
         do {
             let status = try await gitClient.getStatus()
 

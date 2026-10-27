@@ -38,15 +38,14 @@ extension GitClient {
     func diffAgainstHead(for file: URL, isUntracked: Bool) async throws -> [DiffRow] {
         if isUntracked {
             let content = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-            var rows: [DiffRow] = []
-            var id = 0
-            for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
-                rows.append(
-                    DiffRow(id: id, kind: .added, oldNumber: nil, newNumber: id + 1, text: String(line))
-                )
-                id += 1
+            var lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+            // 以换行结尾的文件不应多出一条幽灵空行（split 会把结尾的空串也算作一段）。
+            if content.hasSuffix("\n") {
+                lines.removeLast()
             }
-            return rows
+            return lines.enumerated().map { index, line in
+                DiffRow(id: index, kind: .added, oldNumber: nil, newNumber: index + 1, text: String(line))
+            }
         }
 
         let escaped = "'\(file.path(percentEncoded: false))'"

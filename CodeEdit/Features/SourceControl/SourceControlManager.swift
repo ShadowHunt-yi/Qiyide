@@ -25,6 +25,13 @@ final class SourceControlManager: ObservableObject {
     /// A list of changed files
     @Published var changedFiles: [GitChangedFile] = []
 
+    /// 上一轮被写入 git 状态的文件。清理过期状态时只遍历它，而不是整棵文件树。
+    var filesWithStatus: Set<CEWorkspaceFile> = []
+
+    /// 合并短时间内的多次文件系统事件，避免为每个事件批次都拉起一次 `git status`。
+    /// 构建、依赖安装等操作会在几百毫秒内产生大量批次，逐个刷新会让 CPU 持续占用。
+    private var pendingChangesRefresh: Task<Void, Never>?
+
     /// Current branch
     @Published var currentBranch: GitBranch?
 
@@ -162,6 +169,21 @@ final class SourceControlManager: ObservableObject {
             alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
             alert.alertStyle = .warning
             alert.runModal()
+        }
+    }
+
+    // MARK: - 事件合并
+
+    /// 延迟刷新改动列表；重复调用只保留最后一次（300ms 内的事件合并为一次 `git status`）。
+    ///
+    /// 文件系统事件可能成批到达（自动保存、构建输出、依赖安装），
+    /// 每个批次都同步刷新会持续拉起 git 进程；这里做简单合并。
+    func scheduleChangedFilesRefresh() {
+        pendingChangesRefresh?.cancel()
+        pendingChangesRefresh = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await self?.refreshAllChangedFiles()
         }
     }
 }

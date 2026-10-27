@@ -90,11 +90,10 @@ extension CEWorkspaceFileManager {
             // Change made to remotes by looking at .git/config
             let gitConfigChange = rootEvents.first(where: { $0.path == "\(gitPrefix)/config" })
 
-            // If changes were made to project OR files were staged, refresh changes
+            // If changes were made to project OR files were staged, refresh changes.
+            // 走合并入口：短时间内大量事件（自动保存/构建产物）只触发一次 `git status`。
             if !notGitChanges.isEmpty || gitIndexChange != nil {
-                Task {
-                    await manager.refreshAllChangedFiles()
-                }
+                manager.scheduleChangedFilesRefresh()
             }
 
             // If changes were stashed, refresh stashed entries

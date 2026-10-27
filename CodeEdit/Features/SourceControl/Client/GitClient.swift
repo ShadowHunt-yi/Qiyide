@@ -10,7 +10,7 @@ import Foundation
 import OSLog
 
 class GitClient {
-    enum GitClientError: Error {
+    enum GitClientError: Error, LocalizedError {
         case outputError(String)
         case notGitRepository
         case failedToDecodeURL
@@ -31,6 +31,11 @@ class GitClient {
             case let .statusInvalidChangeType(char): "Status invalid change type: \(char)"
             }
         }
+
+        /// 供 UI 展示的真实原因。
+        /// 没有这个实现时，`error.localizedDescription` 只会给出
+        /// “The operation couldn’t be completed. (… error 1.)”，用户看不到 git 的实际输出。
+        var errorDescription: String? { description }
     }
 
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "", category: "GitClient")
@@ -58,6 +63,18 @@ class GitClient {
     /// If you need to run "git checkout", pass "checkout" as the command parameter
     internal func run(_ command: String) async throws -> String {
         let output = try shellClient.run(generateCommand(command))
+        return try processCommonErrors(output)
+    }
+
+    /// 在指定目录执行 git 命令。
+    ///
+    /// 用于「文件所属仓库 ≠ 工作区主仓库」的场景（多根工作区、嵌套仓库）：
+    /// blame / 行历史必须以文件自身所在仓库为 cwd，否则 git 会报
+    /// `no such path` 或 `no such ref: HEAD`。
+    internal func run(_ command: String, in directory: URL) async throws -> String {
+        let output = try shellClient.run(
+            "cd \(directory.relativePath.escapedDirectory());git \(command)"
+        )
         return try processCommonErrors(output)
     }
 
