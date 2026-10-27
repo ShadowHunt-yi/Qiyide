@@ -1,0 +1,14 @@
+CodeEdit/Features/Editor/GitBlame/GitBlameCoordinator.swift
+  h_6984196a933a03 236-245,247-253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "f3c8aab7a72776fda255fd8f6f908f923c8ba2bd",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
