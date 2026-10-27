@@ -42,6 +42,8 @@ struct GitBlameLine {
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
+        // 固定 en_US_POSIX：日期的月日数字与系统语言无关，避免跟随用户区域设置变化。
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter
     }()
 }
@@ -129,9 +131,12 @@ extension GitClient {
         let root = try await repositoryRoot(containingFile: file)
         let escaped = "'\(file.path(percentEncoded: false))'"
         let range = "\(startLine),\(endLine)"
-        let pretty = "--pretty=format:COMMIT%x1f%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1f--date=short"
+        // `--date=short` 必须是独立参数：拼在 `--pretty=format:` 的值里会被当成格式文本，
+        // 既不生效（%ad 仍输出 "Thu Jun 11 15:29:27 2026 +0800"），又会把字面量
+        // "--date=short" 追加到摘要末尾。
+        let pretty = "--pretty=format:COMMIT%x1f%H%x1f%h%x1f%an%x1f%ad%x1f%s"
         do {
-            let output = try await run("log -L \(range):\(escaped) \(pretty) --", in: root)
+            let output = try await run("log -L \(range):\(escaped) --date=short \(pretty) --", in: root)
             return Self.parseLineHistory(output)
         } catch let error as GitClientError {
             // 无提交 / 未跟踪不是错误，历史面板显示空态即可。

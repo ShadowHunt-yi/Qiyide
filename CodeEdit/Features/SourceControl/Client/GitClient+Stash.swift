@@ -53,7 +53,9 @@ func parseGitStashEntries(_ input: String) -> [GitStashEntry] {
     let lines = trimmedInput.split(separator: "\n", omittingEmptySubsequences: false)
 
     let dateFormatter = DateFormatter()
-    dateFormatter.locale = Locale.current
+    // git 始终以 C locale 输出英文月日（`Tue Oct 27 10:33:30 2026`），
+    // 用 Locale.current 在中文等环境下解析必然失败，条目会被静默丢弃（stash 列表为空）。
+    dateFormatter.locale = Locale(identifier: "en_US_POSIX")
     dateFormatter.dateFormat = "EEE MMM d HH:mm:ss yyyy"
 
     for (index, line) in lines.enumerated() {

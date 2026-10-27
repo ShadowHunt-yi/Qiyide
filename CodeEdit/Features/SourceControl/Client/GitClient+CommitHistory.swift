@@ -24,16 +24,16 @@ extension GitClient {
         let fileString = fileLocalPath != nil ? "\"\(fileLocalPath ?? "")\"" : ""
         let countString = maxCount != nil ? "-n \(maxCount ?? 0)" : ""
 
-        let dateFormatter = DateFormatter()
-
-        // Can't use `Locale.current`, since it'd give a nil date outside the US
-        dateFormatter.locale = Locale(identifier: Locale.current.identifier)
-        dateFormatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
-
+        // 日期必须用机器可读格式：`%aI` 是严格的 ISO 8601（不受 log.date 配置影响）。
+        //
+        // 原实现取 `%aD`（RFC 2822，如 "Thu, 11 Jun 2026 15:29:27 +0800"），
+        // 却用 `Locale.current` 的 DateFormatter 解析：git 始终输出 C locale 的英文月日，
+        // 在中文等非英文环境下解析必然失败，失败后又回退 `Date()`，
+        // 于是历史列表的每一项都显示成「现在」（relativeStringToNow 得到「刚刚」）。
         let output = try await run(
             """
             log \(showMergeCommits ? "" : "--no-merges") -z \
-            --pretty=%h¦%H¦%s¦%aN¦%ae¦%cn¦%ce¦%aD¦%b¦%D¦ \
+            --pretty=%h¦%H¦%s¦%aN¦%ae¦%cn¦%ce¦%aI¦%b¦%D¦ \
             \(countString) \(branchString) -- \(fileString)
             """.trimmingCharacters(in: .whitespacesAndNewlines)
         )
@@ -73,8 +73,30 @@ extension GitClient {
                     refs: refs,
                     tag: tag,
                     remoteURL: remoteURL,
-                    date: dateFormatter.date(from: parameters[safe: 7] ?? "") ?? Date()
+                    date: Self.parseISODate(parameters[safe: 7]) ?? .distantPast
                 )
             }
+    }
+
+    /// 解析 `%aI` 输出的 ISO 8601 时间。
+    ///
+    /// 解析失败时返回 nil 而不是 `Date()`：历史列表按「距今多久」展示，
+    /// 用当前时间兜底会把真实提交时间伪装成「刚刚」，比显示空值更有误导性。
+    private static func parseISODate(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: value) {
+            return date
+        }
+        // 兜底：带毫秒或纯时间戳的变体（兼容不同 git 版本/配置）。
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) {
+            return date
+        }
+        if let seconds = TimeInterval(value) {
+            return Date(timeIntervalSince1970: seconds)
+        }
+        return nil
     }
 }
