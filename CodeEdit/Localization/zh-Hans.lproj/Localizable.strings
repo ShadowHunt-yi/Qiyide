@@ -622,5 +622,3 @@
 "Export Performance Records" = "导出性能记录";
 "Reset Performance Records" = "清空性能记录";
 "Export Failed" = "导出失败";
-/* ===== 终端 ===== */
-"Choose the workspace folder the new terminal starts in." = "选择新终端启动所在的工作区文件夹。";
