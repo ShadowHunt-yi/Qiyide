@@ -92,6 +92,9 @@ extension SettingsData {
                 forKey: .addRemoveAutomatically
             ) ?? true
             self.selectFilesToCommit = try container.decodeIfPresent(Bool.self, forKey: .selectFilesToCommit) ?? true
+            // 漏掉这一项会导致开关只在本次运行有效：旧 JSON 里的 false 被忽略，
+            // 重启后又回到默认的 true（而本次会话里已经关闭）。
+            self.showLineBlame = try container.decodeIfPresent(Bool.self, forKey: .showLineBlame) ?? true
             self.showSourceControlChanges = try container.decodeIfPresent(
                 Bool.self,
                 forKey: .showSourceControlChanges

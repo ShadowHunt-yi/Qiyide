@@ -176,6 +176,8 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
         guard let controller else { return nil }
 
         guard Settings.shared.preferences.sourceControl.general.showLineBlame else {
+            // 记录关闭原因：这是「标注突然消失」最常见的原因（⌥⌘B 误触或设置项被关）。
+            Self.logger.debug("blame 标注已关闭（设置项 showLineBlame = false）")
             removeAllAnnotations(from: controller)
             lastFingerprint = ""
             return nil
@@ -227,6 +229,7 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
 
         let count = min(lineRanges.count, blames.count)
         var lastAnchor: Int?
+        var installed = 0
         for index in 0..<count {
             let lineRange = lineRanges[index]
             guard lineRange.length > 0 else { continue }
@@ -250,7 +253,11 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
                 annotation,
                 for: NSRange(location: anchor, length: 1)
             )
+            installed += 1
         }
+        // 安装结果落日志：出现「有提交但看不到标注」时，可据此区分
+        // 「没安装」（数据/开关问题）与「装了但没画出来」（排版问题）。
+        Self.logger.debug("blame 标注已安装 \(installed)/\(count) 行")
     }
 
     /// 按类型卸载标注。不能按安装时的偏移逐个移除：编辑后内核会平移附件位置。
