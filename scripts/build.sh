@@ -46,6 +46,7 @@ xcodebuild \
     -skipMacroValidation \
     -IDEPackageSupportDisableManifestSandbox=1 \
     -IDEPackageSupportDisablePluginExecutionSandbox=1 \
+    ENABLE_USER_SCRIPT_SANDBOXING=NO \
     CODE_SIGNING_ALLOWED=NO \
     "$@" \
     build 2>&1 | tee "$LOG"

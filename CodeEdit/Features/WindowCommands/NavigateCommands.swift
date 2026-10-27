@@ -99,6 +99,34 @@ struct NavigateCommands: Commands {
                 .disabled(!(editor?.canGoBackInHistory ?? false))
             }
             .disabled(editor == nil)
+            // 文件树一键折叠/展开（VS Code 的 Collapse/Expand Folders in Explorer）。
+            // 与编辑器无关，不随 editor 禁用。
+            Group {
+                Divider()
+
+                Button("Collapse All Folders") {
+                    NotificationCenter.default.post(name: .projectNavigatorCollapseAll, object: nil)
+                }
+                .keyboardShortcut("9", modifiers: [.command, .option])
+            }
+            // git blame 行级标注
+            Group {
+                Divider()
+
+                Button("Show Line History") {
+                    GitBlameCoordinator.showHistoryForCurrentLine(workspace: windowController?.workspace)
+                }
+                .keyboardShortcut("l", modifiers: [.command, .option])
+
+                Toggle("Show Line Blame Annotations", isOn: Binding(
+                    get: { Settings.shared.preferences.sourceControl.general.showLineBlame },
+                    set: { newValue in
+                        Settings.shared.preferences.sourceControl.general.showLineBlame = newValue
+                        NotificationCenter.default.post(name: .gitBlameSettingsDidChange, object: nil)
+                    }
+                ))
+                .keyboardShortcut("b", modifiers: [.command, .option])
+            }
         }
     }
 }

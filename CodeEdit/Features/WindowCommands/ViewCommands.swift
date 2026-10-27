@@ -26,12 +26,50 @@ struct ViewCommands: Commands {
 
     @UpdatingWindowController var windowController: CodeEditWindowController?
 
+    /// 当前活动标签是否为 Markdown 文件（决定预览开关是否可用）。
+    private var isMarkdownSelected: Bool {
+        guard let tab = windowController?.workspace?.editorManager?.activeEditor.selectedTab else {
+            return false
+        }
+        let ext = tab.file.url.pathExtension.lowercased()
+        return ["md", "mkd", "mkdn", "mdown", "markdown", "mdwn"].contains(ext)
+    }
+
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             Button("Show Command Palette") {
                 NSApp.sendAction(#selector(CodeEditWindowController.openCommandPalette(_:)), to: nil, from: nil)
             }
             .keyboardShortcut("p", modifiers: [.shift, .command])
+
+            // Markdown 实时预览：源码 | 预览分栏，滚动同步。
+            Button("Markdown Preview") {
+                if let tab = windowController?.workspace?.editorManager?.activeEditor.selectedTab {
+                    tab.showMarkdownPreview.toggle()
+                }
+            }
+            .keyboardShortcut("p", modifiers: [.command, .option])
+            .disabled(!isMarkdownSelected)
+
+            Divider()
+
+            // 性能采样：默认开启，只记录耗时与计数，不记录文件内容或路径。
+            Toggle("Record Performance Data", isOn: Binding(
+                get: { PerformanceRecorder.shared.isRecordingEnabled },
+                set: { PerformanceRecorder.shared.setRecordingEnabled($0) }
+            ))
+
+            Button("Copy Performance Summary") {
+                PerformanceRecorder.shared.copySummaryToPasteboard()
+            }
+
+            Button("Export Performance Records…") {
+                PerformanceRecorder.shared.exportViaPanel()
+            }
+
+            Button("Reset Performance Records") {
+                PerformanceRecorder.shared.reset()
+            }
 
             Button("Open Search Navigator") {
                 NSApp.sendAction(#selector(CodeEditWindowController.openSearchNavigator(_:)), to: nil, from: nil)

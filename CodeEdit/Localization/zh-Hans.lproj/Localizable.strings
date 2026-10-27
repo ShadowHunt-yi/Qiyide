@@ -586,3 +586,39 @@
 "References (%d)" = "引用（%d）";
 "Open at line %d" = "打开第 %d 行";
 "The server returned no changes." = "服务器没有返回任何修改。";
+
+/* ===== 差异标签页 ===== */
+"Open File" = "打开文件";
+"Working Tree" = "工作区";
+
+/* ===== Markdown 预览 ===== */
+"Markdown Preview" = "Markdown 预览";
+
+/* ===== 文件树折叠展开 ===== */
+"Collapse All Folders" = "全部收起目录";
+"Expand All Folders" = "全部展开目录";
+
+/* ===== Git 行级标注 ===== */
+"Git blame unavailable" = "无法获取 blame 信息";
+"Line History" = "行历史";
+"Line %d history" = "第 %d 行变更历史";
+"This line has uncommitted changes; history shows committed revisions only." = "该行包含未提交的修改；历史仅显示已提交的版本。";
+"No committed history for this line" = "该行没有已提交的变更历史";
+"Select a commit to view its change." = "选择一个提交查看其改动。";
+"Change" = "改动";
+"Full Commit" = "完整提交";
+"Not a git repository." = "不在 Git 仓库中。";
+"Show git line blame annotations" = "显示 Git 行级标注";
+"Show Line History" = "查看行历史";
+"Show Line Blame Annotations" = "显示行级标注";
+
+/* ===== 文件树过滤 ===== */
+"No Filter Results" = "没有匹配结果";
+
+/* ===== 性能记录 ===== */
+"Record Performance Data" = "记录性能数据";
+"Copy Performance Summary" = "复制性能摘要";
+"Export Performance Records…" = "导出性能记录…";
+"Export Performance Records" = "导出性能记录";
+"Reset Performance Records" = "清空性能记录";
+"Export Failed" = "导出失败";

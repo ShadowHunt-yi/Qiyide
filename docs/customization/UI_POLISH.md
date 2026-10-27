@@ -189,4 +189,50 @@ CFBundleIconName = AppIcon
 - 代码折叠：需要动 `CodeEditTextView` 内核（无折叠模型），单独立项。
 - 主题：现有 `.cetheme` 导入导出已可用；如需导入 VS Code 主题需另做转换器。
 - 悬停浮层定位到光标处（当前用通知横幅代替）。
+- 差异视图已改为编辑器区内标签页（左 HEAD / 右 工作区并排，VS Code 式），单击改动文件即打开。
+- 代码折叠已接线：gutter 折叠带 + 缩进折叠（LineFoldModel 建好未接线，本轮补上）。
 - 格式化选项（tabSize / 保存时格式化）未接设置页。
+
+---
+
+## 5. Markdown / XML 高亮与 Markdown 实时预览
+
+### 支持的文件类型
+
+| 类别 | 扩展名 | 高亮引擎 |
+| --- | --- | --- |
+| Markdown | md, mkd, mkdn, mdwn, mdown, markdown | tree-sitter（markdown + markdown-inline 语法，原有）+ 本轮补捕获名映射 |
+| XML 族 | xml, plist, svg, xsl, xslt, xsd, xaml, wsdl, rdf, rss, atom, tld, dtd | `XMLHighlightProvider` 词法高亮（本轮新增） |
+
+### 高亮规则（token → 主题色槽位）
+
+| token | Markdown | XML | 颜色槽位 |
+| --- | --- | --- | --- |
+| 标题文字 / 标签名 | 标题文字（# 标题） | 标签 `</tag>` | types |
+| 标题/列表标记 | `#`、`-`、`1.` | 尖括号、斜杠 | keywords |
+| 代码块 / 行内代码 / 属性值 / CDATA | 代码块、行内代码 | 属性值、CDATA | strings |
+| 链接 / 图片 / 引用名 | `[文本](url)` | 属性名 | attributes（属性名=variables 系） |
+| 注释 / 引用块 | 引用块文字 | `<!-- -->` | comments |
+| 处理指令 / DOCTYPE | — | `<?xml?>`、`<!DOCTYPE>` | keywords |
+
+新增捕获名：textTitle / textLiteral / textURI / textReference / punctuationSpecial / textQuote（映射进 CaptureName，主题复用既有槽位，.cetheme 格式不变）。
+
+### Markdown 预览交互
+
+- 入口：菜单「视图 → Markdown 预览」（⌥⌘P），仅 Markdown 文件可用。
+- 布局：源码 | 预览 左右分栏（HSplitView，分隔条可拖动）。
+- 渲染：标题、段落、列表（含续行）、围栏代码、引用、表格、分隔线；行内代码/粗体/斜体/链接/图片。
+- 滚动同步（双向）：
+  - 源码 → 预览：按顶部可见行/光标行定位到预览中对应块（每个块带 `data-line`）；
+  - 预览 → 源码：页面滚动上报顶部块行号，编辑器滚动到该行；
+  - 回声抑制避免互相触发死循环；编辑文本时预览重渲染并保持阅读比例。
+- 深浅色自适应（`color-scheme` + prefers-color-scheme）。
+
+### 兼容性
+
+- 其余语言的高亮链路（tree-sitter + LSP 语义 token）不动；XML 仅替换该语言的提供器。
+- 捕获名扩展是追加式，老主题/老查询不受影响。
+
+> 注（2026-10-26）：底部工具栏的「全部展开」按钮与 Navigate 菜单的 ⌥⌘0 已移除。
+> 大树下全量展开会触发整棵子树的目录枚举与行插入（即使分批也会持续占用主线程数秒），
+> 风险高于收益；「全部收起」保留。缩略图同时增加了大文档保护（内容高度 >2 万点不排版）。

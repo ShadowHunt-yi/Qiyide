@@ -510,7 +510,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "TAGS=\"TODO:|FIXME:\"\necho \"searching ${SRCROOT} for ${TAGS}\"\nfind \"${SRCROOT}\" \\( -name \"*.swift\" \\) -print0 | xargs -0 egrep --with-filename --line-number --only-matching \"($TAGS).*\\$\" | perl -p -e \"s/($TAGS)/ warning: \\$1/\"\n";
+			shellScript = "TAGS=\"TODO:|FIXME:\"\necho \"searching ${SRCROOT} for ${TAGS}\"\nfind \"${SRCROOT}\" -path \"${SRCROOT}/build\" -prune -o \\( -name \"*.swift\" \\) -print0 | xargs -0 egrep --with-filename --line-number --only-matching \"($TAGS).*\\$\" | perl -p -e \"s/($TAGS)/ warning: \\$1/\"\n";
 		};
 		2B18499A27F8A7A0005119F0 /* Mark // swiftlint:disable:all as errors | Run Script */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -529,7 +529,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "TAGS=\"\\/\\/ swiftlint:disable all\"\necho \"searching ${SRCROOT} for ${TAGS}\"\nfind \"${SRCROOT}\" \\( -name \"*.swift\" \\) -print0 | xargs -0 egrep --with-filename --line-number --only-matching \"($TAGS).*\\$\" | perl -p -e \"s/($TAGS)/ error: Usage of \\$1 is prohibited/\"\n";
+			shellScript = "TAGS=\"\\/\\/ swiftlint:disable all\"\necho \"searching ${SRCROOT} for ${TAGS}\"\nfind \"${SRCROOT}\" -path \"${SRCROOT}/build\" -prune -o \\( -name \"*.swift\" \\) -print0 | xargs -0 egrep --with-filename --line-number --only-matching \"($TAGS).*\\$\" | perl -p -e \"s/($TAGS)/ error: Usage of \\$1 is prohibited/\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
