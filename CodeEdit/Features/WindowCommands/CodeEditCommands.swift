@@ -24,6 +24,8 @@ struct CodeEditCommands: Commands {
             ExtensionCommands()
             WindowCommands()
         }
+        AICommands()
+        WikiCommands()
         HelpCommands()
     }
 }
