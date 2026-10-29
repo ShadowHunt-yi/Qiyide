@@ -113,7 +113,10 @@ final class CodeEditSplitViewController: NSSplitViewController {
         let inspector = NSSplitViewItem(inspectorWithViewController: NSHostingController(rootView: view))
         inspector.titlebarSeparatorStyle = .none
         inspector.minimumThickness = Self.minSidebarWidth
-        inspector.maximumThickness = .greatestFiniteMagnitude
+        // 不设 maximumThickness：默认就是「不限宽度」。
+        // 这里原来显式写成 `.greatestFiniteMagnitude`（1.8e308），
+        // AppKit 把它换成一个布局约束后常量超出内部上限，
+        // 每次启动都会打 "NSLayoutConstraint ... constant that exceeds internal limits"。
         inspector.collapseBehavior = .useConstraints
         inspector.isSpringLoaded = true
         return inspector

@@ -51,12 +51,6 @@ struct ViewCommands: Commands {
             .keyboardShortcut("p", modifiers: [.command, .option])
             .disabled(!isMarkdownSelected)
 
-            // AI 改动审查：按业务/技术分层 + 重要度折叠，查看每次提交动了什么。
-            Button("AI Change Review…") {
-                AIReviewWindowPresenter.show(workspace: windowController?.workspace)
-            }
-            .keyboardShortcut("r", modifiers: [.command, .option])
-
             Divider()
 
             // 性能采样：默认开启，只记录耗时与计数，不记录文件内容或路径。

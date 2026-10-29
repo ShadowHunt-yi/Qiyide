@@ -96,3 +96,8 @@ iOSInjectionProject/
 .codeedit
 .idea
 .vscode
+
+# 运行时生成：知识库数据随仓库走由用户决定，但不入代码仓库
+.qiyide/
+# profiling 产物
+default.profraw

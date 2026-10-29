@@ -112,6 +112,12 @@ struct SettingsData: Codable, Hashable {
             LanguageServerSettings().searchKeys.forEach {
                 settings.append(.init(name, isSetting: true, settingName: $0))
             }
+        case .ai:
+            // 该页没有 Codable 设置模型（配置由 AINarrativeStore 自己持久化），
+            // 这里只登记可被搜索命中的条目名。
+            ["AI 叙述", "接入方式", "协议", "Base URL", "模型", "API Key", "cc-switch", "端口", "测试连接"].forEach {
+                settings.append(.init(name, isSetting: true, settingName: $0))
+            }
         case .developer:
             developerSettings.searchKeys.forEach { settings.append(.init(name, isSetting: true, settingName: $0)) }
         case .behavior: return [.init(name, settingName: "Error")]

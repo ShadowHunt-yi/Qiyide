@@ -56,6 +56,31 @@
     },
     "values": {
       "color": "#330090"
+    },
+    "functions": {
+      "color": "#4271AE"
+    },
+    "methods": {
+      "color": "#4271AE"
+    },
+    "properties": {
+      "color": "#3F8087"
+    },
+    "parameters": {
+      "color": "#AA5D00",
+      "italic": true
+    },
+    "constants": {
+      "color": "#804FB8"
+    },
+    "operators": {
+      "color": "#AD3DA4"
+    },
+    "punctuation": {
+      "color": "#555555"
+    },
+    "decorators": {
+      "color": "#947100"
     }
   },
   "terminal": {

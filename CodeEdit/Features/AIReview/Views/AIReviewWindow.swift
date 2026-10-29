@@ -47,11 +47,17 @@ enum AIReviewWindowPresenter {
 struct AIReviewView: View {
     let workspace: WorkspaceDocument
 
+    @Environment(\.openWindow)
+    private var openWindow
+
     @StateObject private var service: AIReviewService
+    @StateObject private var wiki: WikiStore
     @State private var limit: Int = 20
     @State private var layerFilter: LayerFilter = .all
     @State private var selection: String?
     @State private var showLowImportance = false
+    @State private var curatingID: String?
+    @State private var curatorNotice: String?
     @AppStorage("aiReview.onlyImportant") private var onlyImportant: Bool = true
 
     enum LayerFilter: String, CaseIterable, Identifiable {
@@ -69,6 +75,8 @@ struct AIReviewView: View {
     init(workspace: WorkspaceDocument, manager: SourceControlManager) {
         self.workspace = workspace
         _service = StateObject(wrappedValue: AIReviewService(manager: manager, workspace: workspace))
+        let root = workspace.fileURL ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        _wiki = StateObject(wrappedValue: WikiStore(root: root))
     }
 
     var body: some View {
@@ -80,6 +88,7 @@ struct AIReviewView: View {
         .frame(minWidth: 860, minHeight: 520)
         .background(Color(nsColor: .textBackgroundColor))
         .task {
+            if !wiki.isLoaded { wiki.reload() }
             if service.phase == .idle {
                 await service.load(limit: limit)
             }
@@ -102,6 +111,8 @@ struct AIReviewView: View {
             Toggle("只看重要", isOn: $onlyImportant)
                 .toggleStyle(.checkbox)
                 .font(.system(size: 11))
+
+            aiStatusChip
 
             Spacer()
 
@@ -137,6 +148,33 @@ struct AIReviewView: View {
     }
 
     // MARK: 内容
+
+    /// 常驻状态：AI 现在能不能用，点一下直接进设置。
+    private var aiStatusChip: some View {
+        Button {
+            openAISettings()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10))
+                Text(service.isNarrativeReady ? "AI 就绪" : "AI 未开启")
+                    .font(.system(size: 10))
+            }
+            .foregroundStyle(service.isNarrativeReady ? Color.accentColor : Color.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(
+                        service.isNarrativeReady
+                            ? Color.accentColor.opacity(0.12)
+                            : Color.secondary.opacity(0.12)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .help("\(service.narrativeStatusText)——点击打开设置")
+    }
 
     @ViewBuilder
     private var content: some View {
@@ -199,6 +237,11 @@ struct AIReviewView: View {
                         .padding(16)
                 }
 
+                if !service.isNarrativeReady {
+                    narrativeBanner
+                    Divider()
+                }
+
                 ForEach(onlyImportant ? importantEntries : (showLowImportance ? matchingEntries : importantEntries)) {
                     entry in
                     entryRow(entry)
@@ -213,8 +256,31 @@ struct AIReviewView: View {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
     }
 
-    private var lowToggleRow: some View {
+    /// 未配置时的引导条：说明这个功能存在，并给一个直达设置的入口。
+    private var narrativeBanner: some View {
         Button {
+            openAISettings()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10))
+                Text("开启 AI 叙述，可为每次提交生成一句话说明")
+                    .font(.system(size: 11))
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 4)
+                Text("去设置")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var lowToggleRow: some View {        Button {
             showLowImportance.toggle()
         } label: {
             HStack(spacing: 6) {
@@ -297,6 +363,9 @@ struct AIReviewView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    relatedKnowledge(entry)
+                    narrativeSection(entry)
+
                     section("摘要") {
                         Text(entry.summary)
                             .font(.system(size: 12))
@@ -374,6 +443,40 @@ struct AIReviewView: View {
         }
     }
 
+    /// 把一次改动沉淀成知识草稿。产出的永远是 draft，由人在知识库里确认。
+    private func curate(_ entry: ReviewEntry) {
+        guard AINarrativeStore.shared.isReady else {
+            curatorNotice = AINarrativeStore.shared.blockedReason ?? "模型未配置"
+            return
+        }
+        let label = AINarrativeStore.shared.providerLabel
+        let input = WikiCurationInput(
+            subject: entry.subject,
+            files: entry.files.map(\.path),
+            signals: entry.signals.map(\.title),
+            diff: service.patch(for: entry)
+        )
+        curatingID = entry.id
+        curatorNotice = nil
+        Task {
+            do {
+                let draft = try await WikiCurator.propose(
+                    input: input,
+                    existing: wiki.entries
+                )
+                let applied = try wiki.applyDraft(
+                    draft,
+                    generatedBy: label,
+                    sources: Array(input.files.prefix(8))
+                )
+                curatorNotice = "已生成草稿「\(applied.title)」，到知识库确认后生效"
+            } catch {
+                curatorNotice = error.localizedDescription
+            }
+            curatingID = nil
+        }
+    }
+
     private func header(_ entry: ReviewEntry) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -385,6 +488,12 @@ struct AIReviewView: View {
                 Button(service.isReviewed(entry.id) ? "标记未读" : "标记已读") {
                     service.toggleReviewed(entry.id)
                 }
+            }
+            if let curatorNotice {
+                Text(curatorNotice)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
             HStack(spacing: 8) {
                 Text(entry.shortHash)
@@ -401,6 +510,11 @@ struct AIReviewView: View {
                 Button("复制清单") {
                     copyManifest(entry)
                 }
+                Button(curatingID == entry.id ? "整理中…" : "沉淀为知识") {
+                    curate(entry)
+                }
+                .disabled(curatingID != nil)
+                .help("让模型从这次改动里提炼一条知识草稿，确认后才入库")
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
@@ -410,6 +524,127 @@ struct AIReviewView: View {
     }
 
     // MARK: 小组件
+
+    /// 相关知识：按改动文件路径匹配知识库条目。
+    ///
+    /// 这是知识库真正被用到的时刻——审 diff 时旁边直接摆出「这个文件过去踩过什么」。
+    @ViewBuilder
+    private func relatedKnowledge(_ entry: ReviewEntry) -> some View {
+        let related = wiki.entries(matchingPaths: entry.files.map(\.path))
+        if !related.isEmpty {
+            section("相关知识 \(related.count)") {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(related) { item in
+                        Button {
+                            WikiWindowPresenter.show(workspace: workspace)
+                        } label: {
+                            HStack(alignment: .top, spacing: 6) {
+                                Circle()
+                                    .fill(WikiGraphView.color(for: item.type))
+                                    .frame(width: 6, height: 6)
+                                    .padding(.top, 5)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(item.title)
+                                        .font(.system(size: 11, weight: .medium))
+                                    if !item.summary.isEmpty {
+                                        Text(item.summary)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("在知识库中查看")
+                    }
+                }
+            }
+        }
+    }
+
+    /// 模型叙述。规则摘要始终在上方单独展示，这里只补一句话人话解释。
+    @ViewBuilder
+    private func narrativeSection(_ entry: ReviewEntry) -> some View {
+        section("AI 叙述") {
+            switch service.narrative(for: entry) {
+            case .unavailable(let reason):
+                HStack(spacing: 8) {
+                    Text(reason)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Button("去设置") { openAISettings() }
+                        .controlSize(.small)
+                        .buttonStyle(.link)
+                }
+            case .idle:
+                Button {
+                    service.generateNarrative(for: entry)
+                } label: {
+                    Label("生成叙述", systemImage: "sparkles")
+                        .font(.system(size: 11))
+                }
+                .controlSize(.small)
+            case .streaming(let text):
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(text.isEmpty ? "正在生成…" : text)
+                        .font(.system(size: 12))
+                        .foregroundStyle(text.isEmpty ? .secondary : .primary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.45).frame(width: 12, height: 12)
+                        Button("停止") {
+                            service.cancelNarrative(for: entry)
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.link)
+                    }
+                }
+            case .ready(let text, let cached):
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(text)
+                        .font(.system(size: 12))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        chip(cached ? "缓存" : service.narrativeProviderLabel, color: .secondary)
+                        if service.redactions(for: entry) > 0 {
+                            chip("已脱敏 \(service.redactions(for: entry)) 处", color: .orange)
+                                .help("发送前替换了手机号、身份证、邮箱、密钥等敏感值")
+                        }
+                        Button("重新生成") {
+                            service.generateNarrative(for: entry, force: true)
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.link)
+                    }
+                }
+            case .failed(let message):
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("重试") {
+                        service.generateNarrative(for: entry, force: true)
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.link)
+                }
+            }
+        }
+    }
+
+
+    /// 打开「设置 → AI」。设置是自定义 Window 场景，只能通过 openWindow 打开。
+    private func openAISettings() {
+        SettingsNavigation.shared.request(.ai)
+        openWindow(sceneID: .settings)
+    }
 
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 6) {

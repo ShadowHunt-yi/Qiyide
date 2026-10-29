@@ -17,11 +17,33 @@ struct CodeFileView: View {
     @ObservedObject private var editorInstance: EditorInstance
     @ObservedObject private var codeFile: CodeFileDocument
 
-    @State private var treeSitterClient: TreeSitterClient = TreeSitterClient()
-
     /// Any coordinators passed to the view.
     private var textViewCoordinators: [TextViewCoordinator]
-    private var highlightProviders: [any HighlightProviding] = []
+
+    /// 高亮 provider 必须长期稳定。
+    ///
+    /// 这里踩过一个很隐蔽的坑：provider 原来是在 `init` 里组装成一个普通属性的，
+    /// 而 `TreeSitterClient` 由 `@State` 的初始化表达式创建。SwiftUI 每次重建这个
+    /// View 都会重新执行 init（实测打开一个文件就会重建 4 次），于是每次都产出一个
+    /// 新的 client 实例。`Highlighter.setProviders` 是按 `ObjectIdentifier` 判断
+    /// provider 是否变化的，实例一变就把整条高亮管线拆掉重建：解析树丢弃、查询重跑。
+    /// 结果是高亮永远处在“刚开始算”的状态，看起来就是没有高亮、也没有语法解析能力。
+    ///
+    /// 现在 provider 全部由 `@State` 持有（跨重建复用同一实例），数组在 body 里现算
+    /// （元素不变，`setProviders` 就能识别为“没有变化”）。
+    @State private var treeSitterClient = TreeSitterClient()
+    @State private var xmlHighlightProvider = XMLHighlightProvider()
+
+    /// 当前文件该用哪些高亮 provider。
+    ///
+    /// 必须是 computed：数组每次求值都新建，但元素是 `@State` 里的同一批实例，
+    /// `Highlighter.setProviders` 按对象身份比较后会发现「没有变化」，不会重建管线。
+    private var resolvedHighlightProviders: [any HighlightProviding] {
+        if codeFile.getLanguage().tsName == "XML" {
+            return [xmlHighlightProvider]
+        }
+        return [codeFile.languageServerObjects.highlightProvider, treeSitterClient]
+    }
 
     @AppSettings(\.textEditing.defaultTabWidth)
     var defaultTabWidth
@@ -67,8 +89,6 @@ struct CodeFileView: View {
 
     @ObservedObject private var themeModel: ThemeModel = .shared
 
-    @State private var treeSitter = TreeSitterClient()
-
     private var cancellables = Set<AnyCancellable>()
 
     private let isEditable: Bool
@@ -105,11 +125,7 @@ struct CodeFileView: View {
 
         // XML 族走词法高亮（精确区分标签/属性/注释/CDATA），其余语言走 tree-sitter + LSP 语义 token。
         // 语言名与 CodeEditLanguages 中的 tsName 保持一致（XML / markdown）。
-        if codeFile.getLanguage().tsName == "XML" {
-            highlightProviders = [XMLHighlightProvider()]
-        } else {
-            highlightProviders = [codeFile.languageServerObjects.highlightProvider] + [treeSitterClient]
-        }
+        // 数组本身在 body 里现算（见 `resolvedHighlightProviders`），这里不再组装。
 
         codeFile
             .contentCoordinator
@@ -182,7 +198,7 @@ struct CodeFileView: View {
                     editorInstance.replaceTextSubject.send(newState.replaceText)
                 }
             ),
-            highlightProviders: highlightProviders,
+            highlightProviders: resolvedHighlightProviders,
             undoManager: undoRegistration.manager(forFile: editorInstance.file),
             coordinators: textViewCoordinators
         )

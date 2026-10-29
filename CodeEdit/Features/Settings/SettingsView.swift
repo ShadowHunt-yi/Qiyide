@@ -94,6 +94,13 @@ struct SettingsView: View {
         ),
         .init(
             SettingsPage(
+                .ai,
+                baseColor: .purple,
+                icon: .system("sparkles")
+            )
+        ),
+        .init(
+            SettingsPage(
                 .developer,
                 baseColor: .pink,
                 icon: .system("bolt")
@@ -104,6 +111,18 @@ struct SettingsView: View {
     @ObservedObject private var settings: Settings = .shared
 
     let updater: SoftwareUpdater
+
+    /// 消费来自其它入口的跳页请求（例如 AI 菜单里的「AI 叙述设置…」）。
+    private func applyRequestedPage(_ page: SettingsPage.Name?) {
+        guard let page else { return }
+        if let target = Self.pages.first(where: { $0.page.name == page })?.page {
+            selectedPage = target
+        }
+        // 一次性请求：消费后清空，避免下次 ⌘, 又被拽回同一页。
+        DispatchQueue.main.async {
+            SettingsNavigation.shared.requestedPage = nil
+        }
+    }
 
     /// Searches through an array of pages to check if a page name exists in the array
     private func resultFound(_ page: SettingsPage, pages: [SettingsPage]) -> SettingsSearchResult {
@@ -150,8 +169,7 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            /// Remove the extra List workaround; macOS 26's sidebar .searchable now matches System Settings
+        NavigationSplitView {            /// Remove the extra List workaround; macOS 26's sidebar .searchable now matches System Settings
             if #unavailable(macOS 26.0) {
                 List { }
                     .searchable(text: $searchText, placement: .sidebar, prompt: "Search")
@@ -200,6 +218,8 @@ struct SettingsView: View {
                     LocationsSettingsView()
                 case .languageServers:
                     LanguageServersView()
+                case .ai:
+                    AISettingsView()
                 case .developer:
                     DeveloperSettingsView()
                 default:
@@ -228,6 +248,14 @@ struct SettingsView: View {
             }
         }
         .environmentObject(model)
+        .onReceive(SettingsNavigation.shared.$requestedPage) { page in
+            applyRequestedPage(page)
+        }
+        .onAppear {
+            // 窗口是这次新建的时候，requestedPage 早在窗口存在之前就置位了，
+            // @Published 不会重放，只能在这里补一次。
+            applyRequestedPage(SettingsNavigation.shared.requestedPage)
+        }
         .onAppear {
             // Monitor for the F12 key down event to toggle the developer settings
             model.setKeyDownMonitor { event in

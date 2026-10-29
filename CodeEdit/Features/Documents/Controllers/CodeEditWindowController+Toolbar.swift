@@ -67,6 +67,7 @@ extension CodeEditWindowController {
             .flexibleSpace,
             .itemListTrackingSeparator,
             .flexibleSpace,
+            .aiReviewItem,
             .toggleLastSidebarItem
         ]
 
@@ -83,6 +84,7 @@ extension CodeEditWindowController {
             .branchPicker,
             .activityViewer,
             .notificationItem,
+            .aiReviewItem,
         ]
 
         if #available(macOS 26, *) {
@@ -164,11 +166,12 @@ extension CodeEditWindowController {
         case .branchPicker:
             guard let store = workspace?.sourceControlWorkspace else { return nil }
             let toolbarItem = NSToolbarItem(itemIdentifier: .branchPicker)
-            let view = NSHostingView(
-                rootView: ToolbarBranchPicker(
+            let view = toolbarHostingView(
+                ToolbarBranchPicker(
                     workspaceFileManager: workspace?.workspaceFileManager,
                     store: store
-                )
+                ),
+                minWidth: 120
             )
             toolbarItem.view = view
             toolbarItem.isBordered = false
@@ -177,6 +180,8 @@ extension CodeEditWindowController {
             return activityViewerItem()
         case .notificationItem:
             return notificationItem()
+        case .aiReviewItem:
+            return aiReviewItem()
         case .taskSidebarItem:
             guard #available(macOS 26, *) else {
                 fatalError("Unified task sidebar item used on pre-tahoe platform.")
@@ -204,8 +209,9 @@ extension CodeEditWindowController {
 
         guard let taskManager = workspace?.taskManager else { return nil }
 
-        let view = NSHostingView(
-            rootView: StopTaskToolbarButton(taskManager: taskManager)
+        let view = toolbarHostingView(
+            StopTaskToolbarButton(taskManager: taskManager),
+            minWidth: 38
         )
         toolbarItem.view = view
 
@@ -218,19 +224,44 @@ extension CodeEditWindowController {
         guard let taskManager = workspace?.taskManager else { return nil }
         guard let workspace = workspace else { return nil }
 
-        let view = NSHostingView(
-            rootView: StartTaskToolbarButton(taskManager: taskManager)
-                .environmentObject(workspace)
+        let view = toolbarHostingView(
+            StartTaskToolbarButton(taskManager: taskManager)
+                .environmentObject(workspace),
+            minWidth: 28
         )
         toolbarItem.view = view
 
         return toolbarItem
     }
 
+    /// 工具栏里的 AI 入口。菜单之外的第二条路径——菜单藏得深，按钮不会。
+    private func aiReviewItem() -> NSToolbarItem? {
+        let toolbarItem = NSToolbarItem(itemIdentifier: .aiReviewItem)
+        toolbarItem.paletteLabel = "AI 改动审查"
+        toolbarItem.toolTip = "AI 改动审查（⌥⌘R）"
+        toolbarItem.isBordered = true
+        toolbarItem.target = self
+        toolbarItem.action = #selector(openAIReview(_:))
+        toolbarItem.image = NSImage(
+            systemSymbolName: "sparkles",
+            accessibilityDescription: "AI 改动审查"
+        )?.withSymbolConfiguration(.init(scale: .large))
+        toolbarItem.visibilityPriority = .user
+        return toolbarItem
+    }
+
+    @objc
+    func openAIReview(_ sender: Any?) {
+        AIReviewWindowPresenter.show(workspace: workspace)
+    }
+
     private func notificationItem() -> NSToolbarItem? {
         let toolbarItem = NSToolbarItem(itemIdentifier: .notificationItem)
         guard let workspace = workspace else { return nil }
-        let view = NSHostingView(rootView: NotificationToolbarItem().environmentObject(workspace))
+        let view = toolbarHostingView(
+            NotificationToolbarItem().environmentObject(workspace),
+            minWidth: 1
+        )
         toolbarItem.view = view
         return toolbarItem
     }
@@ -243,8 +274,8 @@ extension CodeEditWindowController {
               let taskManager = workspace?.taskManager
         else { return nil }
 
-        let view = NSHostingView(
-            rootView: ActivityViewer(
+        let view = toolbarHostingView(
+            ActivityViewer(
                 workspaceFileManager: workspace?.workspaceFileManager,
                 workspaceSettingsManager: workspaceSettingsManager,
                 taskNotificationHandler: taskNotificationHandler,
@@ -252,6 +283,8 @@ extension CodeEditWindowController {
             )
         )
 
+        // 650 只是「够宽时」的期望值，压低优先级让工具栏收回时能压缩；
+        // 200 是可用性下限。宽度只在还没有内容时生效，不参与高度测量。
         let weakWidth = view.widthAnchor.constraint(equalToConstant: 650)
         weakWidth.priority = .defaultLow
         let strongWidth = view.widthAnchor.constraint(greaterThanOrEqualToConstant: 200)
@@ -264,5 +297,43 @@ extension CodeEditWindowController {
 
         toolbarItem.view = view
         return toolbarItem
+    }
+
+    /// 工具栏里的 SwiftUI 视图统一入口。
+    ///
+    /// 两件事必须做，缺一件 AppKit 就会在每次启动时刷
+    /// "view was automatically measured but had an ambiguous height or width
+    /// ... frame size had a zero height or width"：
+    /// 1. 打开 `sizingOptions` 并拿到内容的理想尺寸，高度和宽度都别有歧义；
+    /// 2. 交给 `NSToolbarItem` 之前先塞一个非零 frame——AppKit 做第一次
+    ///    自动测量时读的是 view 当前的 frame，0×0 的视图量出来就是「歧义尺寸」。
+    ///
+    /// 高度不写死成 22：活动栏这类内容本身就比标准行高高（实测 36pt），
+    /// 压到 22 会把内容裁掉。这里按内容真实尺寸走，只有量不出来时才兜底。
+    ///
+    /// `translatesAutoresizingMaskIntoConstraints = false` 也是必需的：
+    /// 否则自动转换出来的约束会和下面手动加的宽度约束打架。
+    private func toolbarHostingView<Content: View>(
+        _ content: Content,
+        minWidth: CGFloat = 0
+    ) -> NSHostingView<Content> {
+        let view = NSHostingView(rootView: content)
+        view.sizingOptions = [.intrinsicContentSize]
+        view.translatesAutoresizingMaskIntoConstraints = false
+        if minWidth > 0 {
+            let widthConstraint = view.widthAnchor.constraint(greaterThanOrEqualToConstant: minWidth)
+            widthConstraint.priority = .defaultHigh
+            widthConstraint.isActive = true
+        }
+        let ideal = view.intrinsicContentSize
+        let resolvedHeight: CGFloat = (ideal.height > 0 && ideal.height.isFinite) ? ideal.height : 22
+        let resolvedWidth: CGFloat = (ideal.width > 0 && ideal.width.isFinite) ? ideal.width : 1
+        view.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: max(resolvedWidth, minWidth, 1),
+            height: resolvedHeight
+        )
+        return view
     }
 }

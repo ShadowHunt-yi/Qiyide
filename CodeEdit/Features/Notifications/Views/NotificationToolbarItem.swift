@@ -28,6 +28,13 @@ struct NotificationToolbarItem: View {
                         .monospacedDigit()
                 }
             }
+        } else {
+            // 没有通知时必须给一个确定尺寸的空视图。
+            // 之前这里是隐式 EmptyView，宿主视图量出来是 0×0，
+            // AppKit 在自动测量工具栏项时就报 "ambiguous height or width"。
+            Color.clear
+                .frame(width: 0, height: 22)
+                .accessibilityHidden(true)
         }
     }
 }

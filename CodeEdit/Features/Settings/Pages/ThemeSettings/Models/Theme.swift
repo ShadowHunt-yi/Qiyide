@@ -191,7 +191,15 @@ extension Theme {
                     numbers: .init(color: numbers.nsColor),
                     strings: .init(color: strings.nsColor),
                     characters: .init(color: characters.nsColor),
-                    comments: .init(color: comments.nsColor)
+                    comments: .init(color: comments.nsColor),
+                    functions: .init(color: functions.nsColor, bold: functions.bold, italic: functions.italic),
+                    methods: .init(color: methods.nsColor, bold: methods.bold, italic: methods.italic),
+                    properties: .init(color: properties.nsColor, bold: properties.bold, italic: properties.italic),
+                    parameters: .init(color: parameters.nsColor, bold: parameters.bold, italic: parameters.italic),
+                    constants: .init(color: constants.nsColor, bold: constants.bold, italic: constants.italic),
+                    operators: .init(color: operators.nsColor, bold: operators.bold, italic: operators.italic),
+                    punctuation: .init(color: punctuation.nsColor, bold: punctuation.bold, italic: punctuation.italic),
+                    decorators: .init(color: decorators.nsColor, bold: decorators.bold, italic: decorators.italic)
                 )
             }
             set {
@@ -211,6 +219,14 @@ extension Theme {
                 self.strings.nsColor = newValue.strings.color
                 self.characters.nsColor = newValue.characters.color
                 self.comments.nsColor = newValue.comments.color
+                self.functions.nsColor = newValue.functions.color
+                self.methods.nsColor = newValue.methods.color
+                self.properties.nsColor = newValue.properties.color
+                self.parameters.nsColor = newValue.parameters.color
+                self.constants.nsColor = newValue.constants.color
+                self.operators.nsColor = newValue.operators.color
+                self.punctuation.nsColor = newValue.punctuation.color
+                self.decorators.nsColor = newValue.decorators.color
             }
         }
 
@@ -230,6 +246,17 @@ extension Theme {
         var strings: Attributes
         var characters: Attributes
         var comments: Attributes
+
+        // 语义细分槽位。老主题文件没有这些键，解码时会回退到语义最接近的旧槽位
+        // （见 `init(from:)`），所以不需要改旧文件就能继续用。
+        var functions: Attributes
+        var methods: Attributes
+        var properties: Attributes
+        var parameters: Attributes
+        var constants: Attributes
+        var operators: Attributes
+        var punctuation: Attributes
+        var decorators: Attributes
 
         /// Allows to look up properties by their name
         ///
@@ -258,6 +285,14 @@ extension Theme {
                 case "strings": return self.strings
                 case "characters": return self.characters
                 case "comments": return self.comments
+                case "functions": return self.functions
+                case "methods": return self.methods
+                case "properties": return self.properties
+                case "parameters": return self.parameters
+                case "constants": return self.constants
+                case "operators": return self.operators
+                case "punctuation": return self.punctuation
+                case "decorators": return self.decorators
                 default: fatalError("Invalid key")
                 }
             }
@@ -279,6 +314,14 @@ extension Theme {
                 case "strings": self.strings = newValue
                 case "characters": self.characters = newValue
                 case "comments": self.comments = newValue
+                case "functions": self.functions = newValue
+                case "methods": self.methods = newValue
+                case "properties": self.properties = newValue
+                case "parameters": self.parameters = newValue
+                case "constants": self.constants = newValue
+                case "operators": self.operators = newValue
+                case "punctuation": self.punctuation = newValue
+                case "decorators": self.decorators = newValue
                 default: fatalError("Invalid key")
                 }
             }
@@ -300,7 +343,17 @@ extension Theme {
             numbers: Attributes,
             strings: Attributes,
             characters: Attributes,
-            comments: Attributes
+            comments: Attributes,
+            // 语义细分槽位。缺失时回退到最接近的旧槽位，
+            // 让旧主题文件不必改动就能继续使用。
+            functions: Attributes? = nil,
+            methods: Attributes? = nil,
+            properties: Attributes? = nil,
+            parameters: Attributes? = nil,
+            constants: Attributes? = nil,
+            operators: Attributes? = nil,
+            punctuation: Attributes? = nil,
+            decorators: Attributes? = nil
         ) {
             self.text = text
             self.insertionPoint = insertionPoint
@@ -318,6 +371,54 @@ extension Theme {
             self.strings = strings
             self.characters = characters
             self.comments = comments
+
+            let resolvedFunctions = functions ?? variables
+            self.functions = resolvedFunctions
+            self.methods = methods ?? resolvedFunctions
+            self.properties = properties ?? variables
+            self.parameters = parameters ?? variables
+            self.constants = constants ?? values
+            self.operators = operators ?? keywords
+            self.punctuation = punctuation ?? text
+            self.decorators = decorators ?? attributes
+        }
+
+        /// 兼容解码：老主题文件没有语义细分槽位时，回退到最接近的旧槽位。
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.text = try container.decode(Attributes.self, forKey: .text)
+            self.insertionPoint = try container.decode(Attributes.self, forKey: .insertionPoint)
+            self.invisibles = try container.decode(Attributes.self, forKey: .invisibles)
+            self.background = try container.decode(Attributes.self, forKey: .background)
+            self.lineHighlight = try container.decode(Attributes.self, forKey: .lineHighlight)
+            self.selection = try container.decode(Attributes.self, forKey: .selection)
+            self.keywords = try container.decode(Attributes.self, forKey: .keywords)
+            self.commands = try container.decode(Attributes.self, forKey: .commands)
+            self.types = try container.decode(Attributes.self, forKey: .types)
+            self.attributes = try container.decode(Attributes.self, forKey: .attributes)
+            self.variables = try container.decode(Attributes.self, forKey: .variables)
+            self.values = try container.decode(Attributes.self, forKey: .values)
+            self.numbers = try container.decode(Attributes.self, forKey: .numbers)
+            self.strings = try container.decode(Attributes.self, forKey: .strings)
+            self.characters = try container.decode(Attributes.self, forKey: .characters)
+            self.comments = try container.decode(Attributes.self, forKey: .comments)
+
+            self.functions = try container.decodeIfPresent(Attributes.self, forKey: .functions) ?? self.variables
+            self.methods = try container.decodeIfPresent(Attributes.self, forKey: .methods) ?? self.functions
+            self.properties = try container.decodeIfPresent(Attributes.self, forKey: .properties) ?? self.variables
+            self.parameters = try container.decodeIfPresent(Attributes.self, forKey: .parameters) ?? self.variables
+            self.constants = try container.decodeIfPresent(Attributes.self, forKey: .constants) ?? self.values
+            self.operators = try container.decodeIfPresent(Attributes.self, forKey: .operators) ?? self.keywords
+            self.punctuation = try container.decodeIfPresent(Attributes.self, forKey: .punctuation) ?? self.text
+            self.decorators = try container.decodeIfPresent(Attributes.self, forKey: .decorators) ?? self.attributes
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case text, insertionPoint, invisibles, background, lineHighlight, selection
+            case keywords, commands, types, attributes, variables, values
+            case numbers, strings, characters, comments
+            case functions, methods, properties, parameters, constants
+            case operators, punctuation, decorators
         }
     }
 }

@@ -25,6 +25,9 @@ struct CodeEditApp: App {
         _ = CodeEditDocumentController.shared
         NSMenuItem.swizzle()
         NSSplitViewItem.swizzle()
+
+        // Debug 下把每个语言的 tree-sitter 查询编译一遍，失败原因打到 stderr。
+        LanguageQueryDiagnostics.runOnce()
     }
 
     var body: some Scene {
