@@ -1,0 +1,139 @@
+CodeEdit/Features/Wiki/Service/WikiArchitecturePlanner.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-328
+CodeEdit/Features/Wiki/Service/WikiStore.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 21-22,30-42,63-64,90,96-99,102-108,146,198-203,211-215,219-244,250,263-265,269-280,328-456,481-487
+  s_b8eacdb4864eb1::t_63527d626048fb 1-20,23-29,43-62,65-89,91-95,100-101,109-145,147-148,151-197,204-210,216-218,245-249,251-262,266-268,281-324,457,461,464,470,474-480,488-510
+  s_b8eacdb4864eb1::t_0d5e8a06539b2c 149-150
+  s_b8eacdb4864eb1::t_cc1555a29acca7 325-327
+  s_b8eacdb4864eb1::t_5371e653292b7f 458-460
+  s_b8eacdb4864eb1::t_829de7b86a47f3 462-463
+  s_b8eacdb4864eb1::t_000bc3b15f392e 465-469
+  s_b8eacdb4864eb1::t_160e87ee0da803 471-473
+CodeEdit/Features/Wiki/Service/WikiIngestState.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-90
+CodeEdit/Features/Wiki/Views/WikiWindow.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 29,44,55-764,772-773,780,786,795,797,799-801,817-819,822-824,827-828,830-831,834,842-843,853,859,890,897,902-903,905,907,915,921,924,929,934,939,948-949,951,953,957,959,961,963-964,975-976,991,997,999,1006
+  s_b8eacdb4864eb1::t_558111ac16cda5 26-28
+  s_b8eacdb4864eb1::t_2a84a242f3ef6d 30-32,41-43
+  s_b8eacdb4864eb1::t_ca68809b409b01 45-47,52-54
+  s_b8eacdb4864eb1::t_61ac5be0a47097 765-767,769-771
+  s_b8eacdb4864eb1::t_4c516316249918 774-779
+  s_b8eacdb4864eb1::t_de1c22feb95d29 781-785
+  s_b8eacdb4864eb1::t_256a015cb9ad73 787-789,792-794
+  s_b8eacdb4864eb1::t_84fa7259ac1148 796
+  s_b8eacdb4864eb1::t_02b61656dea049 798
+  s_b8eacdb4864eb1::t_db844eebf86d1b 802-804,814-816
+  s_b8eacdb4864eb1::t_7a541a1a0623c8 820-821
+  s_b8eacdb4864eb1::t_50a01fffd17c5d 825-826
+  s_b8eacdb4864eb1::t_837ce9f8aa5388 829
+  s_b8eacdb4864eb1::t_9d8eb199907a63 832-833
+  s_b8eacdb4864eb1::t_0f5f318bb2b1a9 835-837,839-841
+  s_b8eacdb4864eb1::t_9a1df96461c26f 844-846,850-852
+  s_b8eacdb4864eb1::t_2380f703e6a161 854-858
+  s_b8eacdb4864eb1::t_c72b42adb6fe27 860-862,887-889
+  s_b8eacdb4864eb1::t_ad720957811614 891-896
+  s_b8eacdb4864eb1::t_f8801056dd5e5e 898-901
+  s_b8eacdb4864eb1::t_4cc50fc71a8ec7 904
+  s_b8eacdb4864eb1::t_1806f27167fe72 906
+  s_b8eacdb4864eb1::t_02bc0fdec89d0b 908-910,912-914
+  s_b8eacdb4864eb1::t_31ac9903c84af3 916-920
+  s_b8eacdb4864eb1::t_e92ea7e934a71c 922-923
+  s_b8eacdb4864eb1::t_fcbb9d36f82f36 925-928
+  s_b8eacdb4864eb1::t_aaca78148708bd 930-933
+  s_b8eacdb4864eb1::t_639048a73b40a3 935-938
+  s_b8eacdb4864eb1::t_47234ebddccc51 940-942,945-947
+  s_b8eacdb4864eb1::t_5a3bd50005896b 950
+  s_b8eacdb4864eb1::t_f91a10aa8c5476 952
+  s_b8eacdb4864eb1::t_8399510869c6c2 954-956
+  s_b8eacdb4864eb1::t_d4cb67ae94e2ad 958
+  s_b8eacdb4864eb1::t_821cb29025fe5e 960
+  s_b8eacdb4864eb1::t_8c933bb30df18b 962
+  s_b8eacdb4864eb1::t_93aa398f120a9b 965-967,972-974
+  s_b8eacdb4864eb1::t_c6e8b562dc6f26 977-979,988-990
+  s_b8eacdb4864eb1::t_c415fc839a3b37 992-996
+  s_b8eacdb4864eb1::t_12ce79a45ebfbc 998
+  s_b8eacdb4864eb1::t_1e7985e4693ac3 1000-1005
+  s_b8eacdb4864eb1::t_dcae3650c8a23b 1007
+CodeEdit/Features/WindowCommands/WikiCommands.swift
+  s_b8eacdb4864eb1::t_e11b8db800b863 1-64
+CodeEdit/Features/Wiki/Models/WikiArchitecture.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-177
+CodeEdit/Features/WindowCommands/CodeEditCommands.swift
+  s_b8eacdb4864eb1::t_e11b8db800b863 27-28
+CodeEdit/Features/Wiki/Views/WikiIngestSheet.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-279
+CodeEdit/Features/Wiki/Service/WikiDependencyGraph.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-432
+CodeEdit/Features/Wiki/Models/WikiGraph.swift
+  s_b8eacdb4864eb1::t_63527d626048fb 1-19,22-24,27-38,48,59,91,93-94,100,102-104,106-113,118,121-124,148-151,161-163,176-184,189-192,196-199,204-205,211-212,215-219,225-229,239-251
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 20-21,39-47,49-58,60-90,92,95-99,101,105,114-117,119-120,125-147,152-160,164-175,185-188,193-195,200-203,206-210,213-214,220-224,230-238
+  s_b8eacdb4864eb1::t_dfa061a86097f3 25-26
+CodeEdit/Features/Wiki/Service/WikiArchitectureBuilder.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-66
+CodeEdit/Features/Wiki/Service/WikiChangeSource.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 51,77,86,96,98-109,125,130
+  s_b8eacdb4864eb1::t_8b5a8a4effeeb9 48-50
+  s_b8eacdb4864eb1::t_c849cc27b4a264 52-54,74-76
+  s_b8eacdb4864eb1::t_9d9c922950974b 78-80,83-85
+  s_b8eacdb4864eb1::t_712f2aa9b7fefd 87-89,93-95
+  s_b8eacdb4864eb1::t_dd5c143d4be414 97
+  s_b8eacdb4864eb1::t_112ca9275345d1 110-112,122-124
+  s_b8eacdb4864eb1::t_ff6db9f071e611 126-129
+  s_b8eacdb4864eb1::t_115e345b8ac95f 131
+CodeEdit/Features/Wiki/Service/WikiCurationJob.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-96
+CodeEdit/Features/Wiki/Service/WikiKnowledgeSegmentation.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-248
+CodeEdit/Features/Wiki/Service/WikiRepoIngest.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-422
+CodeEdit/Features/Wiki/Service/WikiCurator.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 36,38-59,73,116,141,178,219,229
+  s_b8eacdb4864eb1::t_ab3278e8cdbd84 33-35
+  s_b8eacdb4864eb1::t_b979cf53200c3e 37
+  s_b8eacdb4864eb1::t_c88ac8b7ceefda 60-62,70-72
+  s_b8eacdb4864eb1::t_a0b515f2b2ebc8 74-76,113-115
+  s_b8eacdb4864eb1::t_c4dd84b16409a7 117-119,138-140
+  s_b8eacdb4864eb1::t_2769a7ae28e136 142-144,175-177
+  s_b8eacdb4864eb1::t_1e0c5a45411308 179-181,216-218
+  s_b8eacdb4864eb1::t_942f32e1531b7b 220-222,226-228
+  s_b8eacdb4864eb1::t_e4270e361347bc 230
+CodeEdit/Features/Wiki/Models/WikiEntry.swift
+  s_b8eacdb4864eb1::t_63527d626048fb 1-84,89-94,106-130,133-152,157-174,178-190,193-244
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 95-105
+  s_b8eacdb4864eb1::t_19ac2edaec1486 85-88
+  s_b8eacdb4864eb1::t_d8e66ce2a13cce 131-132
+  s_b8eacdb4864eb1::t_bd0efd3538f29c 153-156
+  s_b8eacdb4864eb1::t_1e1c46a409a3ae 175-177
+  s_b8eacdb4864eb1::t_0285a75beedee8 191-192
+CodeEdit/Features/Wiki/Service/WikiInsightStore.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-115
+CodeEdit/Features/Wiki/Service/WikiPathNormalizer.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-104
+CodeEdit/Features/Wiki/Views/WikiArchitectureView.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-256
+CodeEdit/Features/Wiki/Service/WikiCurationRunner.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-751
+CodeEdit/Features/Wiki/Views/WikiGraphView.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 12-21,40-42,46,57-60,62,123-125,129-151,154-161,164-189,201,204-239,241,245,251-301,303-308,326,329-332,335-339,349-350,352-366
+  s_b8eacdb4864eb1::t_63527d626048fb 1-11,22-39,43-45,47-56,61,63-122,126-128,152-153,162-163,190-200,202-203,240,242-244,246-250,302,309-325,327-328,333-334,340-348,351,367-397
+CodeEdit/Features/Wiki/Service/WikiModelClient.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-284
+CodeEdit/Features/Wiki/Service/DomainAnalyzer.swift
+  s_b8eacdb4864eb1::t_67a3ba5899d073 1-581
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "2ce0598914f9c8762efbd5c75a096327e43f721f",
+  "prompts": {},
+  "sessions": {
+    "s_b8eacdb4864eb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2da4e1d8-4c6a-4fe8-8a21-e9e7959a12b8",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
