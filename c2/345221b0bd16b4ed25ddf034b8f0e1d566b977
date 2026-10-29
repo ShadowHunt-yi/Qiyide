@@ -1,0 +1,115 @@
+CodeEdit/Features/AIReview/Service/AINarrativePrompt.swift
+  s_b8eacdb4864eb1::t_b15ed89407b254 1-80
+  s_b8eacdb4864eb1::t_8efd3b10c9f671 81-83
+CodeEdit/Features/AIReview/Service/AINarrativeStore.swift
+  s_b8eacdb4864eb1::t_b15ed89407b254 1-275
+README.md
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 96-124
+  s_c769df6767aed6::t_21654d45f04fde 80,82-95,143-151
+  s_b8eacdb4864eb1::t_73dbdf6465f693 125
+  s_c769df6767aed6::t_eb144982dc0e63 152
+CodeEdit/Features/Editor/Views/CodeFileView.swift
+  s_b8eacdb4864eb1::t_bb94d95f92477d 22-46,128,201
+CodeEdit/Features/Settings/Models/SettingsPage.swift
+  s_b8eacdb4864eb1::t_b15ed89407b254 36
+CodeEdit/Features/Documents/Controllers/CodeEditWindowController+Toolbar.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 70,87,169-170,173-174,183-184,212-214,227-230,237-257,261-264,277-278,286-287,301-338
+CodeEdit/Features/Settings/SettingsView.swift
+  s_b8eacdb4864eb1::t_b15ed89407b254 97-101,115-126,172,221-222,253-254,257
+  s_b8eacdb4864eb1::t_7031c5051bfb8d 95-96
+  s_b8eacdb4864eb1::t_83db17ced03e59 251-252
+  s_b8eacdb4864eb1::t_003fa0ab38a360 255-256
+  s_b8eacdb4864eb1::t_461006e0dbc421 258
+.workbuddy/memory/2026-10-28.md
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-47
+.workbuddy/memory/2026-10-23.md
+  s_c769df6767aed6::t_b7f0173be1f2c3 46-74
+  s_c769df6767aed6::t_0bcaf6dde37f3a 43-45
+CodeEdit/Features/Settings/Pages/AISettings/AISettingsView.swift
+  s_b8eacdb4864eb1::t_b15ed89407b254 1-235
+  s_b8eacdb4864eb1::t_fca8afb1e13ebf 236-238
+.workbuddy/memory/2026-10-26.md
+  s_c769df6767aed6::t_bdc300b29cedca 1-24
+  s_c769df6767aed6::t_b020b7c3a226bf 25-197
+CodeEdit/CodeEditApp.swift
+  s_b8eacdb4864eb1::t_bb94d95f92477d 28-30
+CodeEdit/Features/AIReview/Views/AIReviewWindow.swift
+  s_c769df6767aed6::t_21654d45f04fde 50-52,54,59-60,78-79,91,115-116,152-178,240-244,259-260,262-283,366,494,528-566,614-617,642-643,645-646
+  s_b8eacdb4864eb1::t_b15ed89407b254 367-368,451,475,477-478,497,515,567-613,618-641,644,647
+  s_b8eacdb4864eb1::t_88fb808ae559d8 448-450
+  s_b8eacdb4864eb1::t_3695031d6afe2c 452-454,472-474
+  s_b8eacdb4864eb1::t_a6c8ed254f4e4d 476
+  s_b8eacdb4864eb1::t_c83ff03a379513 479
+  s_c769df6767aed6::t_d7eae9614671b2 492-493
+  s_b8eacdb4864eb1::t_eea985ca0595b1 513-514
+  s_b8eacdb4864eb1::t_d3f8e212ade2a0 516-517
+  s_b8eacdb4864eb1::t_a195f8ff83ce40 648
+CodeEdit/Features/Notifications/Views/NotificationToolbarItem.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 31-37
+.workbuddy/memory/2026-10-27.md
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 467-722
+  s_b8eacdb4864eb1::t_b15ed89407b254 226-273
+  s_51bba2190619e3::t_ce002932865334 31-53
+  s_c769df6767aed6::t_21654d45f04fde 274-441
+  s_51bba2190619e3::t_caaa74dc786365 28-30
+CodeEdit/Features/AIReview/Service/AINarrativeCache.swift
+  s_b8eacdb4864eb1::t_b15ed89407b254 1-67
+.workbuddy/memory/2026-10-29.md
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 1-39
+  s_b8eacdb4864eb1::t_bb94d95f92477d 40-91,123
+  s_b8eacdb4864eb1::t_71c8d798169ccd 92-94,120-122
+  s_b8eacdb4864eb1::t_8eabd2319cf1cc 124-126
+CodeEdit/Features/Settings/Models/SettingsData.swift
+  s_b8eacdb4864eb1::t_b15ed89407b254 115-120
+CodeEdit/Features/Documents/Controllers/CodeEditSplitViewController.swift
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 116-119
+CodeEdit/Features/AIReview/Service/AIReviewService.swift
+  s_b8eacdb4864eb1::t_b15ed89407b254 22-31,37-40,45,47-48,58,66,93,99-243,291-294
+CodeEdit/Features/AIReview/Client/AINarrativeProvider.swift
+  s_b8eacdb4864eb1::t_b15ed89407b254 1-122,124-133,136-425,432,436,439,444,447-448,478-479
+  s_b8eacdb4864eb1::t_dcde1c9da7b455 123,134-135,452-465,468-472,475-477
+  s_b8eacdb4864eb1::t_5f71811d13b244 426-431
+  s_b8eacdb4864eb1::t_7c1c4f689baad3 433-435
+  s_b8eacdb4864eb1::t_87c27efd070d0c 437-438
+  s_b8eacdb4864eb1::t_e2dfefe741f64b 440-443
+  s_b8eacdb4864eb1::t_4325fe95d4d828 445-446
+  s_b8eacdb4864eb1::t_4071257f2e1943 449-451
+  s_b8eacdb4864eb1::t_f11d5144608ecf 466-467
+  s_b8eacdb4864eb1::t_6753890b227377 473-474
+CodeEdit/Features/Editor/Highlighting/LanguageQueryDiagnostics.swift
+  s_b8eacdb4864eb1::t_bb94d95f92477d 1-47
+"DefaultThemes/Default (Dark).cetheme"
+  s_b8eacdb4864eb1::t_2e1fc19f978fe8 59-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "c2345221b0bd16b4ed25ddf034b8f0e1d566b977",
+  "prompts": {},
+  "sessions": {
+    "s_51bba2190619e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6eac324d-f38d-4b4a-b202-fddb44837ed0",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    },
+    "s_b8eacdb4864eb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2da4e1d8-4c6a-4fe8-8a21-e9e7959a12b8",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    },
+    "s_c769df6767aed6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3e87a03a-c136-4ac7-884f-358f6441e8d7",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
