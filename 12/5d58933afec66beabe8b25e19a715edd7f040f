@@ -1,0 +1,22 @@
+.workbuddy/memory/2026-10-29.md
+  h_6984196a933a03 276-318
+CodeEdit/CodeEditApp.swift
+  h_6984196a933a03 31-35
+CodeEdit/Features/Wiki/Service/DomainAnalyzer.swift
+  h_6984196a933a03 47-48,52-54,65-91,105,108,110-126,135-138,147,149-151,182-183,187,242-246,249,251,255-258,260-264,266-289,292-295,302-324,339-340,403-404,411-427,434-459,464-475,498-499,518-520,522,556-560,563-564,574-576,581-583,614-629,690-699,702,742,744-745,747-749
+CodeEdit/Features/Wiki/Service/DomainVerification.swift
+  h_6984196a933a03 1-87
+CodeEdit/Features/Wiki/Service/WikiDomainSeeding.swift
+  h_6984196a933a03 81-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "125d58933afec66beabe8b25e19a715edd7f040f",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
