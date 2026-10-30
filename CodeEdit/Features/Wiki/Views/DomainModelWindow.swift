@@ -79,13 +79,23 @@ struct DomainModelView: View {
     @State private var showCustomSpecSheet = false
     @State private var draftSpec = ViewSpec.custom(name: "")
     @State private var seedNotice: String?
+    /// 投影结果缓存。投影要遍历全部节点并复制一份图，
+    /// 不能每次 body 都算——选中、缩放、悬停都会重算 body。
+    @State private var projectedGraph: MindGraph?
 
     private var allSpecs: [ViewSpec] { ViewSpec.presets + customSpecs }
 
-    /// 当前要画的图。建模模式直接用原模型，其余走投影。
+    /// 当前要画的图。建模模式直接用原模型，其余用缓存的投影结果。
     private var displayGraph: MindGraph {
-        guard let activeSpec else { return store.graph }
-        return ViewProjector.project(store.graph, spec: activeSpec)
+        guard let spec = activeSpec else { return store.graph }
+        // 缓存尚未就绪时（切视角的那一帧）先现算，避免闪一下旧图。
+        return projectedGraph ?? ViewProjector.project(store.graph, spec: spec)
+    }
+
+    /// 选中节点。投影视图里的 id 带 `view:` 前缀，只能在投影图上找。
+    private var selectedNode: MindNode? {
+        guard let selection else { return nil }
+        return displayGraph.node(selection) ?? store.node(selection)
     }
 
     var body: some View {
@@ -126,10 +136,32 @@ struct DomainModelView: View {
         .background(Color(nsColor: .textBackgroundColor))
         .onAppear {
             customSpecs = ViewSpecStore.loadAll(root: store.root)
+            refreshProjection()
+        }
+        .onChange(of: activeSpec) { _, _ in
+            refreshProjection()
+            // 换视角后旧的选中 id 可能在新图上不存在了（`view:` 前缀各不相同），
+            // 不清掉的话右侧会停在一个查不到的节点上。
+            if let id = selection, displayGraph.node(id) == nil, store.node(id) == nil {
+                selection = nil
+            }
+        }
+        .onChange(of: store.revision) { _, _ in
+            // 模型改过（改名、合并、重新识别）就重投影，否则图上还是旧结构。
+            refreshProjection()
         }
         .sheet(isPresented: $showCustomSpecSheet) {
             customSpecSheet
         }
+    }
+
+    /// 重算投影。只在「模型变了」或「换视角」时调用。
+    private func refreshProjection() {
+        guard let spec = activeSpec else {
+            projectedGraph = nil
+            return
+        }
+        projectedGraph = ViewProjector.project(store.graph, spec: spec)
     }
 
     // MARK: 自定义视角
@@ -288,7 +320,9 @@ struct DomainModelView: View {
                 store: store,
                 selection: $selection,
                 displayGraph: activeSpec == nil ? nil : displayGraph,
-                isReadOnly: activeSpec != nil
+                isReadOnly: activeSpec != nil,
+                // 换视角或模型变了才重算布局；选中/缩放不算。
+                graphToken: (activeSpec?.id ?? "model") + "#\(store.revision)"
             )
             .frame(minWidth: 620)
             detailPane
@@ -298,7 +332,7 @@ struct DomainModelView: View {
 
     @ViewBuilder
     private var detailPane: some View {
-        if let id = selection, let node = store.node(id) {
+        if let node = selectedNode {
             nodeDetail(node)
         } else {
             VStack(spacing: 8) {
@@ -319,11 +353,30 @@ struct DomainModelView: View {
     }
 
     private func nodeDetail(_ node: MindNode) -> some View {
-        ScrollView {
+        let crumbs = displayGraph.path(to: node.id).map(\.displayTitle)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                // 面包屑：导图缩放/平移后，「我在哪一层」不该靠记忆。
+                if crumbs.count > 1 {
+                    HStack(spacing: 3) {
+                        ForEach(Array(crumbs.enumerated()), id: \.offset) { index, title in
+                            if index > 0 {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 6))
+                                    .foregroundStyle(.quaternary)
+                            }
+                            Text(title)
+                                .lineLimit(1)
+                                .foregroundStyle(index == crumbs.count - 1 ? .secondary : .tertiary)
+                        }
+                    }
+                    .font(.system(size: 9.5))
+                }
+
                 HStack(spacing: 6) {
                     Text(node.displayTitle)
                         .font(.system(size: 14, weight: .medium))
+                        .lineLimit(2)
                     if node.isManual {
                         Text("人工")
                             .font(.system(size: 9))
@@ -356,18 +409,7 @@ struct DomainModelView: View {
                 if !node.evidence.isEmpty {
                     section("判定依据") {
                         ForEach(Array(node.evidence.enumerated()), id: \.offset) { _, item in
-                            HStack(alignment: .top, spacing: 6) {
-                                Text(item.kind.title)
-                                    .font(.system(size: 9))
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Color.secondary.opacity(0.12))
-                                    .clipShape(RoundedRectangle(cornerRadius: 3))
-                                Text(item.detail)
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
+                            evidenceRow(item)
                         }
                     }
                 }
@@ -397,6 +439,39 @@ struct DomainModelView: View {
                 }
             }
             .padding(14)
+        }
+    }
+
+    /// 一条判定依据：类型标签 + 原文 + 权重条。
+    ///
+    /// 加权重条是因为「依据」本身没有可比性——
+    /// 「被引用 85 次」和「12 个类」摆在一起，人是判断不出谁更重的。
+    private func evidenceRow(_ item: Evidence) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(item.kind.title)
+                    .font(.system(size: 9))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                Text(item.detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Text(String(format: "%.0f%%", item.weight * 100))
+                    .font(.system(size: 9).monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.12))
+                    .frame(height: 3)
+                Capsule()
+                    .fill(Color.accentColor.opacity(0.55))
+                    .frame(width: max(2, 120 * min(1, max(0, item.weight))), height: 3)
+            }
         }
     }
 

@@ -38,6 +38,12 @@ final class DomainModelStore: ObservableObject {
     @Published private(set) var drift: DriftReport?
     @Published var errorMessage: String?
 
+    /// 模型版本号。每次结构变化递增，供视图缓存投影图与布局。
+    ///
+    /// 为什么不直接比较 `graph`：`MindGraph` 不算轻量（含上百个节点与索引），
+    /// 每帧做深比较比重新投影还贵。一个整数就够表达「变了没有」。
+    @Published private(set) var revision: Int = 0
+
     /// 上次识别时的全部包，用于漂移比较。
     private var knownPackages: Set<String> = []
 
@@ -112,6 +118,7 @@ final class DomainModelStore: ObservableObject {
         } else {
             graph = result.graph
             knownPackages = Set(result.graph.nodes.flatMap(\.packages))
+            revision &+= 1
         }
 
         lastAnalyzedAt = Date()
@@ -152,22 +159,27 @@ final class DomainModelStore: ObservableObject {
 
     func rename(_ id: String, to title: String) {
         graph.rename(id, to: title)
+        revision &+= 1
     }
 
     func assignOwner(_ id: String, to name: String?) {
         graph.assignOwner(id, to: name)
+        revision &+= 1
     }
 
     func setShared(_ id: String, _ shared: Bool) {
         graph.setShared(id, shared)
+        revision &+= 1
     }
 
     func merge(_ sourceID: String, into targetID: String) {
         graph.merge(sourceID, into: targetID)
+        revision &+= 1
     }
 
     func move(_ id: String, toParent parentID: String) {
         graph.move(id, toParent: parentID)
+        revision &+= 1
     }
 
     /// 编辑后立刻落盘（仅锁定的模型）。未锁定时改动只存在内存里。

@@ -17,7 +17,9 @@
 //
 
 #if DEBUG
+import AppKit
 import Foundation
+import SwiftUI
 
 enum DomainVerification {
 
@@ -65,6 +67,39 @@ enum DomainVerification {
                 log("\(spec.name)：\(projected.nodes.count) 节点，顶层 [\(top.joined(separator: ", "))]")
             }
 
+            // 布局自检：卡片重叠是「看不清」的直接来源，必须为 0。
+            log("—— 布局自检（画布 980×680，全部展开）——")
+            var cases: [(String, MindGraph)] = [("建模视图", result.graph)]
+            cases += ViewSpec.presets.map { ($0.name, ViewProjector.project(result.graph, spec: $0)) }
+            for (name, graph) in cases {
+                let expanded = Set(graph.nodes.filter { $0.kind == .domain }.map(\.id))
+                let layout = MindMapLayout.compute(
+                    graph: graph,
+                    size: CGSize(width: 980, height: 680),
+                    expanded: expanded
+                )
+                var overlaps = 0
+                let rects = layout.placements.map(\.rect)
+                for i in rects.indices {
+                    for j in rects.indices where j > i {
+                        if rects[i].intersects(rects[j]) { overlaps += 1 }
+                    }
+                }
+                let summaries = layout.placements.filter(\.isSummary)
+                let summaryText = summaries.isEmpty
+                    ? "无"
+                    : summaries.map { "\($0.node.parentID ?? "?")+\($0.hiddenCount)" }.joined(separator: ", ")
+                log(String(
+                    format: "%@：%d 卡片，重叠 %d 对，内容 %.0f×%.0f，汇总卡[%@]",
+                    name,
+                    layout.placements.count,
+                    overlaps,
+                    layout.contentBounds.width,
+                    layout.contentBounds.height,
+                    summaryText
+                ))
+            }
+
             log("—— 知识条目预览（不写盘）——")
             for domain in result.graph.domains.prefix(2) {
                 let body = WikiDomainSeeding.body(for: domain, in: result.graph)
@@ -74,8 +109,58 @@ enum DomainVerification {
                 }
             }
 
+            // 离屏渲染导图，用于人工检查排版（字体、留白、连线、图例）。
+            if let path = ProcessInfo.processInfo.environment["QIYIDE_VERIFY_SNAPSHOT"] {
+                await MainActor.run {
+                    snapshot(graph: result.graph, root: root, to: path, expanded: false,
+                             size: CGSize(width: 980, height: 680))
+                    // 再来一张全展开的：模块卡片、汇总卡、放大后的字号都在这一张上看。
+                    snapshot(graph: result.graph, root: root,
+                             to: path.replacingOccurrences(of: ".png", with: "-expanded.png"),
+                             expanded: true, size: CGSize(width: 1100, height: 1500))
+                }
+            }
+
             log("验证结束")
             exit(0)
+        }
+    }
+
+    /// 把导图渲染成 PNG。
+    ///
+    /// 界面链路在无头启动下没法自动点，但「画出来长什么样」可以直接渲染验证：
+    /// 排版问题（字太小、卡片挤、连线穿卡片）看图一眼就知道，比读代码可靠。
+    @MainActor
+    private static func snapshot(graph: MindGraph, root: URL, to path: String, expanded: Bool, size: CGSize) {
+        let store = DomainModelStore(root: root)
+        let openIDs: Set<String> = expanded
+            ? Set(graph.nodes.filter { $0.kind == .domain }.map(\.id))
+            : []
+        let content = MindMapView(
+            store: store,
+            selection: .constant(nil),
+            displayGraph: graph,
+            isReadOnly: true,
+            graphToken: "verify-\(expanded)",
+            initiallyExpanded: openIDs
+        )
+        .frame(width: size.width, height: size.height)
+        .background(Color(nsColor: .textBackgroundColor))
+
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = 2
+        guard let image = renderer.nsImage,
+              let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else {
+            log("渲染失败：\(path)")
+            return
+        }
+        do {
+            try png.write(to: URL(fileURLWithPath: path))
+            log("导图已渲染：\(path)")
+        } catch {
+            log("渲染写盘失败：\(error.localizedDescription)")
         }
     }
 

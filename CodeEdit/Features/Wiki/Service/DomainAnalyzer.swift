@@ -47,11 +47,17 @@ enum DomainAnalyzer {
         /// 6000 字节只够约 2000 个汉字（UTF-8 每字 3 字节），命中数会被系统性低估。
         static let readLimit = 16_000
         /// git 作者统计最多看多少次提交。
-        static let gitLogLimit = 200
+        ///
+        /// 只跑一次 `git log --name-only` 覆盖全部候选，所以这里的上限
+        /// 是「整仓库看多少条历史」，而不是「每个候选看多少条」。
+        static let gitCommitLimit = 500
         /// 每个候选最多扫多少个文件找中文词。
         static let termScanFileLimit = 100
         /// 中文词频的归一化分母。达到这个次数即视为「该词在此域高度集中」。
         static let termSaturation = 30
+        /// 扫 import 时最多看前多少行。import 一律在文件头部，
+        /// 继续往下扫一个 16KB 的文件纯属浪费。
+        static let importScanLines = 160
     }
 
     /// 这些路径段说明该包属于技术实现层，不是业务域。
@@ -183,17 +189,16 @@ enum DomainAnalyzer {
                 let leaves = makeLeaves(modules: modules, root: root)
                 var candidates = aggregate(leaves: leaves)
 
-                Task { @MainActor in progress("统计跨包引用…") }
-                let refs = scanImports(modules: modules)
-                for key in candidates.keys {
-                    candidates[key]?.externalRefs = refs[key] ?? 0
-                }
+                // 一次遍历同时算 import 与中文词。
+                // 之前是两趟读同一批文件，等于把 IO 与解码开销翻倍。
+                Task { @MainActor in progress("读取 \(leaves.count) 个包的文件内容…") }
+                let signals = scanSignals(modules: modules, leaves: leaves, candidates: candidates)
+                apply(signals: signals, to: &candidates)
 
-                Task { @MainActor in progress("提取中文业务词…") }
-                attachChineseTerms(&candidates, root: root)
-
+                // 作者统计只跑一次 git。之前每个候选各跑一次 git log，
+                // 96 个候选就是 96 个进程，是识别耗时的大头。
                 Task { @MainActor in progress("统计作者归属…") }
-                attachAuthors(&candidates, root: root)
+                attachAuthors(&candidates, root: root, fileToCandidate: signals.fileToCandidate)
 
                 Task { @MainActor in progress("汇总判定…") }
                 let graph = buildGraph(
@@ -328,7 +333,7 @@ enum DomainAnalyzer {
     private static func aggregate(leaves: [Leaf]) -> [String: Candidate] {
         var result: [String: Candidate] = [:]
         for leaf in leaves {
-            let key = leaf.parts.prefix(2).joined(separator: "/")
+            let key = aggregateKey(for: leaf)
             guard !key.isEmpty else { continue }
             var candidate = result[key] ?? Candidate(
                 key: key,
@@ -400,57 +405,217 @@ enum DomainAnalyzer {
         return token.isEmpty ? "Other" : token
     }
 
-    /// 统计每个业务包（depth 2）被其它包 import 的次数。
-    private static func scanImports(modules: [ModuleScan]) -> [String: Int] {
-        var counts: [String: Int] = [:]
-        let pattern = try? NSRegularExpression(
-            pattern: #"^import\s+(?:static\s+)?([\w.]+);"#,
-            options: [.anchorsMatchLines]
-        )
+    // MARK: 文件遍历（一次读盘，两路统计）
 
-        for module in modules {
-            for (dir, files) in module.filesByDir {
-                guard let ownerParts = businessParts(dir: dir, prefix: module.prefix) else { continue }
-                let owner = ownerParts.prefix(2).joined(separator: "/")
-
-                for file in files {
-                    guard let text = readPrefix(of: module.root.appending(path: file)) else { continue }
-                    let range = NSRange(text.startIndex..., in: text)
-                    pattern?.enumerateMatches(in: text, range: range) { match, _, _ in
-                        guard let match, let symbolRange = Range(match.range(at: 1), in: text) else { return }
-                        let symbol = String(text[symbolRange])
-                        guard let restParts = relativeImportParts(symbol, modules: modules) else { return }
-                        // restParts 形如 ["agent","suggest","FooService"]，取前两段就是归属包。
-                        let target = restParts.prefix(2).joined(separator: "/")
-                        guard !target.isEmpty, target != owner else { return }
-                        counts[target, default: 0] += 1
-                    }
-                }
-            }
-        }
-        return counts
+    /// 一次遍历拿到的全部文件级信号。
+    struct ScanSignals {
+        /// 每个业务包被其它包引用的次数（同一文件内多次 import 只算一次）。
+        var refs: [String: Int] = [:]
+        /// 每个业务包的中文词频。
+        var terms: [String: [String: Int]] = [:]
+        /// 仓库相对路径 → 业务包 key，供作者统计反查。
+        var fileToCandidate: [String: String] = [:]
+        var scannedFiles: Int = 0
+        var failedFiles: Int = 0
     }
 
-    /// 把 import 的完整包名换算成「去掉模块公共前缀」的业务路径段。
+    private struct FileJob {
+        var url: URL
+        var repoPath: String
+        var ownerKey: String
+        /// 只有每个候选的前 N 个文件参与词频，避免大域把 IO 吃光。
+        var allowTerms: Bool
+    }
+
+    /// 并发汇总器。用类把锁和累加器封在一起，
+    /// 避免在 `concurrentPerform` 的闭包里修改捕获的局部变量。
+    private final class SignalCollector {
+        private let lock = NSLock()
+        private var refs: [String: Int] = [:]
+        private var terms: [String: [String: Int]] = [:]
+        private var failures = 0
+
+        func add(owner: String, imported: Set<String>, words: [String: Int]) {
+            lock.lock()
+            defer { lock.unlock() }
+            for key in imported { refs[key, default: 0] += 1 }
+            guard !words.isEmpty else { return }
+            var bucket = terms[owner] ?? [:]
+            for (word, count) in words { bucket[word, default: 0] += count }
+            terms[owner] = bucket
+        }
+
+        func recordFailure() {
+            lock.lock()
+            failures += 1
+            lock.unlock()
+        }
+
+        func snapshot() -> (refs: [String: Int], terms: [String: [String: Int]], failures: Int) {
+            lock.lock()
+            defer { lock.unlock() }
+            return (refs, terms, failures)
+        }
+    }
+
+    /// 把所有 .java 读一遍，同时算 import 引用与中文词频。
     ///
-    /// 用「最长前缀匹配」而不是硬编码某段包名：不同项目根包不同，
-    /// 写死 `platform.app.` 在别的仓库上会全部失配。
-    private static func relativeImportParts(_ symbol: String, modules: [ModuleScan]) -> [String]? {
-        let parts = symbol.split(separator: ".").map(String.init)
-        var best: [String]?
-        for module in modules where parts.count > module.prefix.count {
-            var matched = true
-            for (index, segment) in module.prefix.enumerated() where parts[index] != segment {
-                matched = false
-                break
+    /// 为什么合并：原实现 import 扫一趟、中文词再扫一趟，同一批文件读两遍。
+    /// 1900 个文件时这是几百毫秒的纯浪费，而且两趟都要跑一遍编码回退。
+    /// 合并后每文件只读一次；两路统计都是纯 CPU，按文件并发。
+    private static func scanSignals(
+        modules: [ModuleScan],
+        leaves: [Leaf],
+        candidates: [String: Candidate]
+    ) -> ScanSignals {
+        // 词频预算：每个候选只看前 N 个文件。
+        var allowance: [String: Int] = [:]
+        var termFiles = Set<String>()
+        for leaf in leaves {
+            let key = aggregateKey(for: leaf)
+            var left = Threshold.termScanFileLimit - (allowance[key] ?? 0)
+            guard left > 0 else { continue }
+            for url in leaf.absoluteFiles where left > 0 {
+                if termFiles.insert(url.path).inserted { left -= 1 }
             }
-            guard matched else { continue }
-            let rest = Array(parts.dropFirst(module.prefix.count))
-            if best == nil || rest.count < (best?.count ?? Int.max) {
-                best = rest
+            allowance[key] = Threshold.termScanFileLimit - left
+        }
+
+        var jobs: [FileJob] = []
+        var fileToCandidate: [String: String] = [:]
+        jobs.reserveCapacity(candidates.values.reduce(0) { $0 + $1.files.count })
+        for leaf in leaves {
+            let key = aggregateKey(for: leaf)
+            for (index, url) in leaf.absoluteFiles.enumerated() {
+                let repoPath = index < leaf.repoPaths.count
+                    ? leaf.repoPaths[index]
+                    : url.lastPathComponent
+                jobs.append(FileJob(
+                    url: url,
+                    repoPath: repoPath,
+                    ownerKey: key,
+                    allowTerms: termFiles.contains(url.path)
+                ))
+                fileToCandidate[repoPath] = key
             }
         }
-        return best
+
+        var signals = ScanSignals(fileToCandidate: fileToCandidate)
+        signals.scannedFiles = jobs.count
+        guard !jobs.isEmpty else { return signals }
+
+        let matcher = ImportMatcher(modules: modules)
+        let collector = SignalCollector()
+
+        DispatchQueue.concurrentPerform(iterations: jobs.count) { index in
+            let job = jobs[index]
+            guard let text = readPrefix(of: job.url) else {
+                collector.recordFailure()
+                return
+            }
+            collector.add(
+                owner: job.ownerKey,
+                imported: matcher.targets(in: text, excluding: job.ownerKey),
+                words: job.allowTerms ? cjkTerms(in: text) : [:]
+            )
+        }
+
+        let result = collector.snapshot()
+        signals.refs = result.refs
+        signals.terms = result.terms
+        signals.failedFiles = result.failures
+        return signals
+    }
+
+    /// 把信号写回候选。集中一处，避免每个阶段各改一遍字典。
+    private static func apply(signals: ScanSignals, to candidates: inout [String: Candidate]) {
+        for key in candidates.keys {
+            guard var candidate = candidates[key] else { continue }
+            candidate.externalRefs = signals.refs[key] ?? 0
+            candidate.termCounts = signals.terms[key] ?? [:]
+            candidates[key] = candidate
+        }
+    }
+
+    /// 把 import 的完整包名映射成「去掉模块公共前缀」的业务包 key。
+    ///
+    /// 用模块的公共前缀做匹配，而不是硬编码某段包名：不同项目根包不同，
+    /// 写死 `platform.app.` 在别的仓库上会全部失配。
+    private struct ImportMatcher {
+        /// 按字符数降序，保证更长的前缀先命中。
+        private let prefixes: [String]
+
+        init(modules: [ModuleScan]) {
+            var seen = Set<String>()
+            var list: [String] = []
+            for module in modules where !module.prefix.isEmpty {
+                let dotted = module.prefix.joined(separator: ".")
+                if seen.insert(dotted).inserted { list.append(dotted) }
+            }
+            prefixes = list.sorted { $0.count > $1.count }
+        }
+
+        /// 文本里所有 import 指向的业务包。
+        func targets(in text: String, excluding owner: String) -> Set<String> {
+            var result = Set<String>()
+            var lineCount = 0
+            for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+                lineCount += 1
+                if lineCount > Threshold.importScanLines { break }
+                guard line.hasPrefix("import ") else { continue }
+                var symbol = line.dropFirst("import ".count)
+                if symbol.hasPrefix("static ") { symbol = symbol.dropFirst("static ".count) }
+                if symbol.hasSuffix(";") { symbol = symbol.dropLast() }
+                guard let key = target(for: symbol), key != owner else { continue }
+                result.insert(key)
+            }
+            return result
+        }
+
+        private func target(for symbol: Substring) -> String? {
+            for prefix in prefixes where symbol.hasPrefix(prefix) {
+                // 跳过前缀本身和它后面的那个点。
+                let rest = symbol.dropFirst(prefix.count + 1)
+                let parts = rest.split(separator: ".", maxSplits: 2, omittingEmptySubsequences: true)
+                guard parts.count >= 2 else { return nil }
+                return parts.prefix(2).joined(separator: "/")
+            }
+            return nil
+        }
+    }
+
+    /// 中文词频。
+    ///
+    /// 不用 `NSRegularExpression`：每个文件跑一次 16KB 的正则匹配，
+    /// 1900 个文件下是可观测的开销，还要为每次匹配建 NSRange。
+    /// 这里按 Unicode 标量扫一遍，遇非汉字即结算，按 2–4 字切块，
+    /// 与原来 `[\u4e00-\u9fa5]{2,4}` 的切分行为一致。
+    private static func cjkTerms(in text: String) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        var run: [Unicode.Scalar] = []
+        run.reserveCapacity(8)
+
+        func flush() {
+            defer { run.removeAll(keepingCapacity: true) }
+            var index = 0
+            while index + 2 <= run.count {
+                let take = min(4, run.count - index)
+                let word = String(String.UnicodeScalarView(run[index..<(index + take)]))
+                index += take
+                guard !stopwords.contains(word), !genericTerms.contains(word) else { continue }
+                counts[word, default: 0] += 1
+            }
+        }
+
+        for scalar in text.unicodeScalars {
+            if (0x4E00...0x9FA5).contains(scalar.value) {
+                run.append(scalar)
+            } else if !run.isEmpty {
+                flush()
+            }
+        }
+        if !run.isEmpty { flush() }
+        return counts
     }
 
     /// 读文件头部。用于扫 import 与提取中文词。
@@ -475,59 +640,49 @@ enum DomainAnalyzer {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private static func aggregateKey(of file: URL, javaRoot: URL) -> String {
-        file.deletingLastPathComponent().path
-            .replacingOccurrences(of: javaRoot.path + "/", with: "")
-            .split(separator: "/").prefix(2).joined(separator: "/")
+    /// 叶子包聚合到哪个候选（二级 key）。
+    private static func aggregateKey(for leaf: Leaf) -> String {
+        leaf.parts.prefix(2).joined(separator: "/")
     }
 
-    /// 从完整包名里截出本仓库的相对路径段。
-    /// `com.jd...platform.app.agent.suggest.FooService` → `["agent","suggest","FooService"]`
-    private static func internalParts(from fullName: String) -> [String]? {
-        guard let range = fullName.range(of: "platform.app.") else { return nil }
-        return String(fullName[range.upperBound...]).split(separator: ".").map(String.init)
-    }
+    /// 统计每个候选的提交作者。
+    ///
+    /// 只跑**一次** `git log --name-only`，在内存里按「文件 → 候选」反查归属。
+    /// 原实现每个候选各跑一次 `git log -- <dir>`，96 个候选就是 96 个进程，
+    /// 是识别耗时的主要来源（在 2200 条历史的仓库上实测占掉一半以上）。
+    private static func attachAuthors(
+        _ candidates: inout [String: Candidate],
+        root: URL,
+        fileToCandidate: [String: String]
+    ) {
+        guard !fileToCandidate.isEmpty else { return }
+        let output = WikiChangeSource.run(
+            ["log", "--no-merges", "-\(Threshold.gitCommitLimit)", "--format=@@%an", "--name-only"],
+            at: root
+        ) ?? ""
+        guard !output.isEmpty else { return }
 
-    /// 提取中文业务词。只取 2–4 个汉字并剔除虚词，剩下的高频词基本就是业务名词
-    /// （实测本仓库稳定抽出：画像 1460、建议 540、客服 257、搭子 217）。
-    private static func attachChineseTerms(_ candidates: inout [String: Candidate], root: URL) {
-        let pattern = try? NSRegularExpression(pattern: "[\u{4e00}-\u{9fa5}]{2,4}")
-        for key in candidates.keys {
-            guard var candidate = candidates[key] else { continue }
-            var counts: [String: Int] = [:]
-            for url in candidate.absoluteFiles.prefix(Threshold.termScanFileLimit) {
-                guard let text = readPrefix(of: url) else { continue }
-                let range = NSRange(text.startIndex..., in: text)
-                pattern?.enumerateMatches(in: text, range: range) { match, _, _ in
-                    guard let match, let wordRange = Range(match.range, in: text) else { return }
-                    let word = String(text[wordRange])
-                    guard !stopwords.contains(word) else { return }
-                    counts[word, default: 0] += 1
-                }
+        var perCandidate: [String: [String: Int]] = [:]
+        var author = ""
+        var seenInCommit = Set<String>()
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            if line.hasPrefix("@@") {
+                author = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                seenInCommit.removeAll(keepingCapacity: true)
+                continue
             }
-            candidate.termCounts = counts
-            candidates[key] = candidate
+            guard !author.isEmpty else { continue }
+            let path = String(line)
+            // 一个提交改同目录下多个文件时只算一次提交，否则文件多的目录会被重复计票。
+            guard seenInCommit.insert(path).inserted,
+                  let key = fileToCandidate[path] else { continue }
+            perCandidate[key, default: [:]][author, default: 0] += 1
         }
-    }
 
-    /// 统计每个候选的提交作者。只对类数达标的候选跑，避免几百次 git 调用。
-    private static func attachAuthors(_ candidates: inout [String: Candidate], root: URL) {
         for key in candidates.keys {
             guard var candidate = candidates[key],
-                  candidate.classCount >= Threshold.domainMinClasses else { continue }
-            // git 只认仓库相对路径；`candidate.key` 是去掉包前缀后的业务路径，用它查不到任何提交。
-            guard let firstRepoPath = candidate.repoPaths.first else { continue }
-            let gitDir = (firstRepoPath as NSString).deletingLastPathComponent
-            let output = WikiChangeSource.run(
-                ["log", "--no-merges", "--format=%an", "-\(Threshold.gitLogLimit)", "--", gitDir],
-                at: root
-            ) ?? ""
-            var counts: [String: Int] = [:]
-            for line in output.split(separator: "\n") {
-                let name = line.trimmingCharacters(in: .whitespaces)
-                guard !name.isEmpty else { continue }
-                counts[name, default: 0] += 1
-            }
+                  candidate.classCount >= Threshold.domainMinClasses,
+                  let counts = perCandidate[key] else { continue }
             candidate.authors = counts
                 .map { AuthorStat(name: $0.key, commits: $0.value) }
                 .sorted { $0.commits > $1.commits }
@@ -606,10 +761,14 @@ enum DomainAnalyzer {
             .map { (candidate: $0, result: score($0, maxClasses: maxClasses)) }
             .sorted { $0.result.0 > $1.result.0 }
 
+        // 模块节点先按域分桶建好。
+        // 原实现是「每个域再扫一遍全部叶子 + 用 nodes.contains 查重」，
+        // 域一多就退化成 O(域 × 叶子 × 节点数)，这里降到 O(叶子)。
+        let modulesByDomain = groupModules(leaves: leaves)
+
         var nodes: [MindNode] = []
         var rootNode = MindNode(id: "system", title: root.lastPathComponent, kind: .system)
         rootNode.classCount = candidates.values.reduce(0) { $0 + $1.classCount }
-        nodes.append(rootNode)
 
         #if DEBUG
         // 分数构成打到 stderr：阈值调不调得动，取决于看到每一项的实际值。
@@ -646,27 +805,15 @@ enum DomainAnalyzer {
             node.fileCount = item.candidate.files.count
             node.evidence = item.result.1
             node.owner = OwnerInfo(authors: item.candidate.authors)
+
+            // 模块按类数降序：图上从上到下就是「从大到小」，不用逐个去认。
+            for module in (modulesByDomain[item.candidate.key] ?? []).sorted(by: { $0.classCount > $1.classCount }) {
+                node.childIDs.append(module.id)
+                nodes.append(module)
+            }
             nodes.append(node)
             rootNode.childIDs.append(id)
             claimed.insert(item.candidate.key)
-
-            // 域内子包作为模块挂上去。
-            for leaf in leaves where leaf.parts.count >= 3 {
-                let leafKey = leaf.parts.prefix(3).joined(separator: "/")
-                guard leafKey.hasPrefix(item.candidate.key + "/") else { continue }
-                let moduleID = "module:" + leafKey
-                guard !nodes.contains(where: { $0.id == moduleID }) else { continue }
-                var module = MindNode(id: moduleID, title: leaf.parts[2], kind: .module)
-                module.parentID = id
-                module.packages = [leafKey]
-                module.classCount = leaf.classes.count
-                module.fileCount = leaf.files.count
-                nodes.append(module)
-                node.childIDs.append(moduleID)
-            }
-            if let index = nodes.firstIndex(where: { $0.id == id }) {
-                nodes[index] = node
-            }
         }
 
         // 剩余候选：按第一层聚合。这里是「销售搭子」这类跨包产品概念的落点，
@@ -728,15 +875,37 @@ enum DomainAnalyzer {
             warnings.append("没有候选达到领域阈值，可能需要在导图上手工划分")
         }
 
-        if let index = nodes.firstIndex(where: { $0.id == "system" }) {
-            nodes[index] = rootNode
-        }
+        nodes.append(rootNode)
 
         var graph = MindGraph(nodes: nodes, rootID: "system", generatedAt: Date())
         graph.baseCommit = WikiChangeSource.run(["rev-parse", "HEAD"], at: root)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         graph.rebuildIndex()
         return graph
+    }
+
+    /// 叶子包 → 三级模块节点，按所属域（二级 key）分桶。
+    ///
+    /// 分桶的意义是把「找我的子模块」从「遍历全部叶子」变成一次查表；
+    /// 三级 key 重复时只留第一个（同名包出现在多个 Maven 模块里时，
+    /// 图上只画一个节点，避免同一模块被计入两次）。
+    private static func groupModules(leaves: [Leaf]) -> [String: [MindNode]] {
+        var result: [String: [MindNode]] = [:]
+        var seen = Set<String>()
+        for leaf in leaves where leaf.parts.count >= 3 {
+            let domainKey = aggregateKey(for: leaf)
+            let moduleKey = leaf.parts.prefix(3).joined(separator: "/")
+            let moduleID = "module:" + moduleKey
+            guard seen.insert(moduleID).inserted else { continue }
+
+            var module = MindNode(id: moduleID, title: leaf.parts[2], kind: .module)
+            module.parentID = "domain:" + domainKey
+            module.packages = [moduleKey]
+            module.classCount = leaf.classes.count
+            module.fileCount = leaf.files.count
+            result[domainKey, default: []].append(module)
+        }
+        return result
     }
 
     /// 域标题：优先用包名词典，其次用包名本身。
