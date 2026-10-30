@@ -44,11 +44,14 @@ enum DomainAnalyzer {
         /// 子域的分界。
         static let subdomainScore = 0.45
         /// 单个文件最多读多少字节找中文词。
-        static let readLimit = 6_000
+        /// 6000 字节只够约 2000 个汉字（UTF-8 每字 3 字节），命中数会被系统性低估。
+        static let readLimit = 16_000
         /// git 作者统计最多看多少次提交。
         static let gitLogLimit = 200
         /// 每个候选最多扫多少个文件找中文词。
-        static let termScanFileLimit = 60
+        static let termScanFileLimit = 100
+        /// 中文词频的归一化分母。达到这个次数即视为「该词在此域高度集中」。
+        static let termSaturation = 30
     }
 
     /// 这些路径段说明该包属于技术实现层，不是业务域。
@@ -57,6 +60,33 @@ enum DomainAnalyzer {
         "db", "mapper", "domain", "entity", "repository", "dao",
         "utils", "util", "config", "constant", "dto", "enums",
         "mq", "cache", "exception", "job", "proxy"
+    ]
+
+    /// 包名 → 中文业务名。命名用这个，不用中文词频。
+    ///
+    /// 实测中文词频极不可靠：`service/portrait` 里最高频的词是「对照」（来自对照组/对照表），
+    /// 直接命名会得到「AI对照」。包名反而稳定——`portrait` 就是画像、`customerservice` 就是客服。
+    /// 词频仍然保留，但只作为「判定依据」展示，不参与命名。
+    private static let packageGlossary: [String: String] = [
+        "portrait": "画像", "customerservice": "客服", "suggest": "建议",
+        "corpus": "语料", "badge": "徽章", "insight": "洞察", "agent": "搭子",
+        "chat": "对话", "memory": "记忆", "skill": "技能", "intent": "意图",
+        "order": "订单", "product": "商品", "goods": "商品", "user": "用户",
+        "member": "会员", "coupon": "优惠券", "promotion": "促销", "campaign": "活动",
+        "payment": "支付", "refund": "退款", "settlement": "结算", "invoice": "发票",
+        "cart": "购物车", "inventory": "库存", "logistics": "物流", "delivery": "配送",
+        "review": "评价", "comment": "评论", "message": "消息", "notify": "通知",
+        "search": "搜索", "recommend": "推荐", "risk": "风控", "audit": "审计",
+        "report": "报表", "dashboard": "看板", "admin": "后台", "config": "配置"
+    ]
+
+    /// 技术动作词：高频但说明不了业务语义，不能拿来给域命名。
+    /// 实测 `agent/customerservice` 的最高频中文词是「对齐」，直接命名会得到「AI对齐」这种不知所云的名字。
+    private static let genericTerms: Set<String> = [
+        "对齐", "校验", "处理", "转换", "同步", "分发", "编排", "路由",
+        "兜底", "降级", "重试", "缓存", "加载", "解析", "渲染", "展示",
+        "统计", "汇总", "明细", "列表", "详情", "编辑", "新建", "删除",
+        "查询", "搜索", "导入", "导出", "刷新", "初始化", "记录", "结果"
     ]
 
     /// 中文停用词：只保留名词性词汇，避免「我们」「注意」这类词占据高频位。
@@ -72,9 +102,28 @@ enum DomainAnalyzer {
 
     /// 一个叶子包（真正含 .java 的目录）。
     private struct Leaf {
+        /// 已去掉公共包前缀的业务路径，如 `agent/suggest/generate`。
         var parts: [String]
         var classes: [String]
+        /// 相对 `src/main/java`（仅用于展示）。
         var files: [String]
+        /// 绝对路径：读文件内容必须用它，拼仓库根会得到不存在的路径。
+        var absoluteFiles: [URL] = []
+        /// 仓库相对路径：git 命令只认这个。
+        var repoPaths: [String] = []
+    }
+
+    /// 一个 Maven 模块的扫描结果。
+    ///
+    /// 为什么要单独记前缀：Java 包路径动辄十几层
+    /// （`com/jd/home/shj/server/saas/plus/ai/platform/app/agent/suggest`），
+    /// 前 10 层对所有文件都一样。直接按物理层级统计，要么因为太深被跳过，
+    /// 要么把「平台路径」当成业务层级。先求公共前缀，剩下的才是业务结构。
+    private struct ModuleScan {
+        var root: URL
+        var prefix: [String]
+        var classesByDir: [String: [String]]
+        var filesByDir: [String: [String]]
     }
 
     /// 聚合后的域候选。所有统计都基于聚合后的类名与文件列表。
@@ -83,6 +132,10 @@ enum DomainAnalyzer {
         var parts: [String]
         var classes: [String] = []
         var files: [String] = []
+        /// 读文件内容用（中文词提取）。
+        var absoluteFiles: [URL] = []
+        /// git 统计用（仓库相对路径）。
+        var repoPaths: [String] = []
         var dominantPrefix: String = ""
         var prefixShare: Double = 0
         var externalRefs: Int = 0
@@ -91,8 +144,11 @@ enum DomainAnalyzer {
         var authors: [AuthorStat] = []
 
         var classCount: Int { classes.count }
+        /// 最高频的业务词。跳过技术动作词——它们频次最高但说明不了业务语义。
         var topTerm: String? {
-            termCounts.max { $0.value < $1.value }?.key
+            termCounts
+                .filter { !DomainAnalyzer.genericTerms.contains($0.key) }
+                .max { $0.value < $1.value }?.key
         }
         var isTechnical: Bool {
             parts.contains { technicalSegments.contains($0.lowercased()) }
@@ -123,11 +179,12 @@ enum DomainAnalyzer {
                 }
 
                 Task { @MainActor in progress("扫描包结构…") }
-                let leaves = scanLeaves(javaRoots: javaRoots)
+                let modules = scanModules(javaRoots: javaRoots)
+                let leaves = makeLeaves(modules: modules, root: root)
                 var candidates = aggregate(leaves: leaves)
 
                 Task { @MainActor in progress("统计跨包引用…") }
-                let refs = scanImports(javaRoots: javaRoots)
+                let refs = scanImports(modules: modules)
                 for key in candidates.keys {
                     candidates[key]?.externalRefs = refs[key] ?? 0
                 }
@@ -182,41 +239,87 @@ enum DomainAnalyzer {
         return result
     }
 
-    /// 扫出所有含 .java 的目录。深度上限 4（层/域/子域/再一层）。
-    private static func scanLeaves(javaRoots: [URL]) -> [Leaf] {
-        var leaves: [Leaf] = []
-        let manager = FileManager.default
+    /// 扫描每个模块下的 .java 文件，并按目录归组。
+    ///
+    /// 一次遍历同时拿到类名与文件路径，避免为了算前缀再扫一遍。
+    private static func scanModules(javaRoots: [URL]) -> [ModuleScan] {
+        var modules: [ModuleScan] = []
 
         for javaRoot in javaRoots {
-            guard let enumerator = manager.enumerator(
+            guard let enumerator = FileManager.default.enumerator(
                 at: javaRoot,
-                includingPropertiesForKeys: [.isDirectoryKey],
+                includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]
             ) else { continue }
 
-            for case let url as URL in enumerator {
-                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else {
-                    continue
-                }
-                let relative = url.path.replacingOccurrences(of: javaRoot.path + "/", with: "")
-                guard !relative.isEmpty else { continue }
-                let parts = relative.split(separator: "/").map(String.init)
-                if parts.count > 4 {
-                    enumerator.skipDescendants()
-                    continue
-                }
-                let javaFiles = (try? manager.contentsOfDirectory(atPath: url.path))?
-                    .filter { $0.hasSuffix(".java") } ?? []
-                guard !javaFiles.isEmpty else { continue }
+            var classesByDir: [String: [String]] = [:]
+            var filesByDir: [String: [String]] = [:]
 
+            for case let url as URL in enumerator where url.pathExtension == "java" {
+                let relative = url.path.replacingOccurrences(of: javaRoot.path + "/", with: "")
+                let dir = (relative as NSString).deletingLastPathComponent
+                guard !dir.isEmpty else { continue }
+                classesByDir[dir, default: []].append(url.deletingPathExtension().lastPathComponent)
+                filesByDir[dir, default: []].append(relative)
+            }
+
+            guard !classesByDir.isEmpty else { continue }
+            modules.append(ModuleScan(
+                root: javaRoot,
+                prefix: commonPrefix(Array(classesByDir.keys)),
+                classesByDir: classesByDir,
+                filesByDir: filesByDir
+            ))
+        }
+        return modules
+    }
+
+    /// 去掉公共包前缀后转成叶子包。
+    ///
+    /// 同时算好两种路径：读文件要绝对路径、跑 git 要仓库相对路径。
+    /// 之前只存了「相对 src/main/java」的路径，后续两个环节都拿它当基准，全部读空。
+    private static func makeLeaves(modules: [ModuleScan], root: URL) -> [Leaf] {
+        var leaves: [Leaf] = []
+        for module in modules {
+            let moduleRel = module.root.path
+                .replacingOccurrences(of: root.path, with: "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            for (dir, classes) in module.classesByDir {
+                guard let parts = businessParts(dir: dir, prefix: module.prefix) else { continue }
+                let files = module.filesByDir[dir] ?? []
                 leaves.append(Leaf(
                     parts: parts,
-                    classes: javaFiles.map { String($0.dropLast(5)) },
-                    files: javaFiles.map { "\(relative)/\($0)" }
+                    classes: classes,
+                    files: files,
+                    absoluteFiles: files.map { module.root.appending(path: $0) },
+                    repoPaths: files.map { moduleRel.isEmpty ? $0 : "\(moduleRel)/\($0)" }
                 ))
             }
         }
         return leaves
+    }
+
+    /// `com/jd/.../platform/app/agent/suggest` 去掉公共前缀后 → `["agent","suggest"]`
+    private static func businessParts(dir: String, prefix: [String]) -> [String]? {
+        var parts = dir.split(separator: "/").map(String.init)
+        guard parts.count > prefix.count else { return nil }
+        parts.removeFirst(prefix.count)
+        return parts.isEmpty ? nil : parts
+    }
+
+    /// 一组目录路径的最长公共前缀（按段比较）。
+    private static func commonPrefix(_ paths: [String]) -> [String] {
+        guard var prefix = paths.first?.split(separator: "/").map(String.init) else { return [] }
+        for path in paths.dropFirst() {
+            let parts = path.split(separator: "/").map(String.init)
+            var index = 0
+            while index < prefix.count, index < parts.count, prefix[index] == parts[index] {
+                index += 1
+            }
+            prefix = Array(prefix.prefix(index))
+            if prefix.isEmpty { return [] }
+        }
+        return prefix
     }
 
     /// 把叶子包聚合到第二层（`agent/suggest/generate` → `agent/suggest`）。
@@ -233,6 +336,8 @@ enum DomainAnalyzer {
             )
             candidate.classes.append(contentsOf: leaf.classes)
             candidate.files.append(contentsOf: leaf.files)
+            candidate.absoluteFiles.append(contentsOf: leaf.absoluteFiles)
+            candidate.repoPaths.append(contentsOf: leaf.repoPaths)
             result[key] = candidate
         }
 
@@ -295,44 +400,79 @@ enum DomainAnalyzer {
         return token.isEmpty ? "Other" : token
     }
 
-    /// 统计每个二级包被其它二级包 import 的次数。
-    private static func scanImports(javaRoots: [URL]) -> [String: Int] {
+    /// 统计每个业务包（depth 2）被其它包 import 的次数。
+    private static func scanImports(modules: [ModuleScan]) -> [String: Int] {
         var counts: [String: Int] = [:]
         let pattern = try? NSRegularExpression(
             pattern: #"^import\s+(?:static\s+)?([\w.]+);"#,
             options: [.anchorsMatchLines]
         )
 
-        for javaRoot in javaRoots {
-            guard let enumerator = FileManager.default.enumerator(
-                at: javaRoot,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else { continue }
+        for module in modules {
+            for (dir, files) in module.filesByDir {
+                guard let ownerParts = businessParts(dir: dir, prefix: module.prefix) else { continue }
+                let owner = ownerParts.prefix(2).joined(separator: "/")
 
-            for case let url as URL in enumerator {
-                guard url.pathExtension == "java",
-                      let text = readPrefix(of: url) else { continue }
-                let owner = aggregateKey(of: url, javaRoot: javaRoot)
-                let range = NSRange(text.startIndex..., in: text)
-                pattern?.enumerateMatches(in: text, range: range) { match, _, _ in
-                    guard let match, let symbolRange = Range(match.range(at: 1), in: text) else { return }
-                    let symbol = String(text[symbolRange])
-                    guard let internalPath = internalParts(from: symbol) else { return }
-                    let target = internalPath.prefix(2).joined(separator: "/")
-                    guard !target.isEmpty, target != owner else { return }
-                    counts[target, default: 0] += 1
+                for file in files {
+                    guard let text = readPrefix(of: module.root.appending(path: file)) else { continue }
+                    let range = NSRange(text.startIndex..., in: text)
+                    pattern?.enumerateMatches(in: text, range: range) { match, _, _ in
+                        guard let match, let symbolRange = Range(match.range(at: 1), in: text) else { return }
+                        let symbol = String(text[symbolRange])
+                        guard let restParts = relativeImportParts(symbol, modules: modules) else { return }
+                        // restParts 形如 ["agent","suggest","FooService"]，取前两段就是归属包。
+                        let target = restParts.prefix(2).joined(separator: "/")
+                        guard !target.isEmpty, target != owner else { return }
+                        counts[target, default: 0] += 1
+                    }
                 }
             }
         }
         return counts
     }
 
+    /// 把 import 的完整包名换算成「去掉模块公共前缀」的业务路径段。
+    ///
+    /// 用「最长前缀匹配」而不是硬编码某段包名：不同项目根包不同，
+    /// 写死 `platform.app.` 在别的仓库上会全部失配。
+    private static func relativeImportParts(_ symbol: String, modules: [ModuleScan]) -> [String]? {
+        let parts = symbol.split(separator: ".").map(String.init)
+        var best: [String]?
+        for module in modules where parts.count > module.prefix.count {
+            var matched = true
+            for (index, segment) in module.prefix.enumerated() where parts[index] != segment {
+                matched = false
+                break
+            }
+            guard matched else { continue }
+            let rest = Array(parts.dropFirst(module.prefix.count))
+            if best == nil || rest.count < (best?.count ?? Int.max) {
+                best = rest
+            }
+        }
+        return best
+    }
+
+    /// 读文件头部。用于扫 import 与提取中文词。
+    ///
+    /// 编码必须容错：老 Java 工程的中文注释常是 GBK，严格按 UTF-8 解码会返回 nil，
+    /// 整批文件被静默跳过——实测这会让中文词频从几百掉到十几，直接压垮评分。
     private static func readPrefix(of url: URL) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: Threshold.readLimit)) ?? Data()
-        return String(data: data, encoding: .utf8)
+        guard !data.isEmpty else { return nil }
+
+        if let text = String(data: data, encoding: .utf8) { return text }
+        // 回退到 GB18030（兼容 GBK/GB2312）。
+        let gbEncoding = String.Encoding(
+            rawValue: CFStringConvertEncodingToNSStringEncoding(
+                CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+            )
+        )
+        if let text = String(data: data, encoding: gbEncoding) { return text }
+        // 兜底：按 UTF-8 容错解码，非法字节替换成占位符，至少 ASCII 部分可用。
+        return String(decoding: data, as: UTF8.self)
     }
 
     private static func aggregateKey(of file: URL, javaRoot: URL) -> String {
@@ -355,8 +495,8 @@ enum DomainAnalyzer {
         for key in candidates.keys {
             guard var candidate = candidates[key] else { continue }
             var counts: [String: Int] = [:]
-            for file in candidate.files.prefix(Threshold.termScanFileLimit) {
-                guard let text = readPrefix(of: root.appending(path: file)) else { continue }
+            for url in candidate.absoluteFiles.prefix(Threshold.termScanFileLimit) {
+                guard let text = readPrefix(of: url) else { continue }
                 let range = NSRange(text.startIndex..., in: text)
                 pattern?.enumerateMatches(in: text, range: range) { match, _, _ in
                     guard let match, let wordRange = Range(match.range, in: text) else { return }
@@ -375,8 +515,11 @@ enum DomainAnalyzer {
         for key in candidates.keys {
             guard var candidate = candidates[key],
                   candidate.classCount >= Threshold.domainMinClasses else { continue }
+            // git 只认仓库相对路径；`candidate.key` 是去掉包前缀后的业务路径，用它查不到任何提交。
+            guard let firstRepoPath = candidate.repoPaths.first else { continue }
+            let gitDir = (firstRepoPath as NSString).deletingLastPathComponent
             let output = WikiChangeSource.run(
-                ["log", "--no-merges", "--format=%an", "-\(Threshold.gitLogLimit)", "--", candidate.key],
+                ["log", "--no-merges", "--format=%an", "-\(Threshold.gitLogLimit)", "--", gitDir],
                 at: root
             ) ?? ""
             var counts: [String: Int] = [:]
@@ -410,12 +553,15 @@ enum DomainAnalyzer {
             ))
         }
 
-        // ③ 调用闭合：零外部引用说明不依附别的域。
-        let closureScore = candidate.externalRefs == 0
-            ? 1.0
-            : max(0, 1 - Double(candidate.externalRefs) / 80.0)
+        // ③ 调用关系只做证据，不参与扣分。
+        //
+        // 原实现按「被引用次数」扣分，结果 `agent/customerservice`（被 web 与 agent 同时引用 85 次）
+        // 被判定为「不够独立」而落选——但它恰恰是最该被识别为域的模块。
+        // 被依赖得多说明这是有价值的基础能力，不是缺点。
         if candidate.externalRefs == 0 {
             evidence.append(Evidence(.callClosure, "无跨包引用，业务独立", weight: 1.0))
+        } else {
+            evidence.append(Evidence(.callClosure, "被引用 \(candidate.externalRefs) 次", weight: 0.6))
         }
 
         // ④ 业务入口：Service/Api/Controller 类的密度。
@@ -425,16 +571,16 @@ enum DomainAnalyzer {
         }
 
         // ⑤ 中文业务词：出现越集中越像领域名。
-        let topCount = candidate.termCounts.values.max() ?? 0
-        let termScore = min(1.0, Double(topCount) / 60.0)
+        // 用 topTerm（已排除技术动作词）的计数，而不是所有词的计数最大值。
+        let topCount = candidate.topTerm.flatMap { candidate.termCounts[$0] } ?? 0
+        let termScore = min(1.0, Double(topCount) / Double(Threshold.termSaturation))
         if let term = candidate.topTerm {
             evidence.append(Evidence(.chineseTerm, "高频词「\(term)」×\(topCount)", weight: termScore))
         }
 
-        var total = 0.28 * sizeScore
-            + 0.22 * candidate.prefixShare
-            + 0.14 * closureScore
-            + 0.16 * entryScore
+        var total = 0.30 * sizeScore
+            + 0.25 * candidate.prefixShare
+            + 0.25 * entryScore
             + 0.20 * termScore
 
         // 技术层降权：db/mapper/dto 这类包再大也不是业务域。
@@ -464,6 +610,22 @@ enum DomainAnalyzer {
         var rootNode = MindNode(id: "system", title: root.lastPathComponent, kind: .system)
         rootNode.classCount = candidates.values.reduce(0) { $0 + $1.classCount }
         nodes.append(rootNode)
+
+        #if DEBUG
+        // 分数构成打到 stderr：阈值调不调得动，取决于看到每一项的实际值。
+        for item in scored.prefix(10) {
+            NSLog(
+                "[Qiyide][score] %@ 分数=%.3f 类=%d 前缀=%.2f refs=%d 入口=%d 词=%d",
+                item.candidate.key,
+                item.result.0,
+                item.candidate.classCount,
+                item.candidate.prefixShare,
+                item.candidate.externalRefs,
+                item.candidate.entryCount,
+                item.candidate.termCounts.values.max() ?? 0
+            )
+        }
+        #endif
 
         var claimed = Set<String>()
         var usedTitles = Set<String>()
@@ -525,9 +687,19 @@ enum DomainAnalyzer {
         for (level1, bucket) in leftovers.sorted(by: { $0.value.classCount > $1.value.classCount }) {
             guard bucket.classCount >= Threshold.domainMinClasses * 2 else { continue }
             let id = "domain:leftover:" + level1
+            // 剩下的一级包也走词典：`agent` 剩余 647 个类，正是「销售搭子」的主体。
+            let chinese = packageGlossary[level1.lowercased()]
+            var title = chinese.map { "AI\($0)" }
+                ?? "\(level1.prefix(1).uppercased() + level1.dropFirst()) 核心"
+            // 不同模块可能有同名包（app 的 portrait 与 client 的 portrait），
+            // 都走词典会得到两个「AI画像」，这里用包路径后缀区分。
+            if usedTitles.contains(title) {
+                title += "（\(level1)）"
+            }
+            usedTitles.insert(title)
             var node = MindNode(
                 id: id,
-                title: "\(level1.prefix(1).uppercased() + level1.dropFirst()) 核心",
+                title: title,
                 kind: .domain
             )
             node.parentID = "system"
@@ -567,13 +739,14 @@ enum DomainAnalyzer {
         return graph
     }
 
-    /// 域标题：优先用高频中文业务词，拼上 `AI` 前缀。
+    /// 域标题：优先用包名词典，其次用包名本身。
     ///
-    /// 本项目所有领域都是 AI 能力（AI画像、AI客服…），只写「画像」会和
-    /// 「用户画像表」这类技术概念混淆，所以统一加前缀。
+    /// 不用中文词频命名——实测 `service/portrait` 的最高频词是「对照」，
+    /// 会得到「AI对照」这种看不懂的名字。词频只留在依据里供人核对。
     private static func domainTitle(for candidate: Candidate) -> String {
-        if let term = candidate.topTerm {
-            return term.hasPrefix("AI") ? term : "AI" + term
+        if let last = candidate.parts.last?.lowercased(),
+           let chinese = packageGlossary[last] {
+            return "AI" + chinese
         }
         let last = candidate.parts.last ?? candidate.key
         return last.prefix(1).uppercased() + last.dropFirst()

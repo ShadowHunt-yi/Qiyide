@@ -78,7 +78,8 @@ enum WikiDomainSeeding {
             .map { $0 }
     }
 
-    private static func body(for domain: MindNode, in graph: MindGraph) -> String {
+    /// 生成正文。内部可见：验证工具需要在**不落盘**的情况下预览产物。
+    static func body(for domain: MindNode, in graph: MindGraph) -> String {
         var lines: [String] = []
 
         lines.append("> 本条目由领域建模自动生成，正文只含事实。")

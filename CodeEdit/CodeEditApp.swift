@@ -28,6 +28,11 @@ struct CodeEditApp: App {
 
         // Debug 下把每个语言的 tree-sitter 查询编译一遍，失败原因打到 stderr。
         LanguageQueryDiagnostics.runOnce()
+
+        #if DEBUG
+        // 无界面验证领域建模链路；未设置 QIYIDE_VERIFY_DOMAIN 时直接返回。
+        DomainVerification.runIfRequested()
+        #endif
     }
 
     var body: some Scene {
