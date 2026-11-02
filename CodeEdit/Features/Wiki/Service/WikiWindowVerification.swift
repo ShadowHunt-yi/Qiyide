@@ -107,6 +107,29 @@ enum WikiWindowVerification {
                 print("[verify][wiki] 批量确认：\(confirmed) 条")
                 checkConsistency(store, label: "确认草稿")
             }
+
+            // 改类型同样走「结构没变」的分支，但图上节点的颜色取决于 type，
+            // 刷新时漏掉它就会「类型改了、图还是旧色」。
+            if var entry = store.entries.first {
+                let original = entry.type
+                entry.type = original == .decision ? .topic : .decision
+                try? store.save(entry)
+                let synced = store.graph.node(entry.id)?.type == entry.type
+                print("[verify][wiki] 类型同步：\(synced ? "通过" : "失败（图上仍是 \(String(describing: store.graph.node(entry.id)?.type))）")")
+                entry.type = original
+                try? store.save(entry)
+            }
+
+            // 检索索引按 id 增量维护，最容易出的错是「漏了某条」——
+            // 拿每条自己的标题去搜，必须能搜回自己。
+            let missing = store.entries.filter { entry in
+                let probe = String(entry.title.prefix(8))
+                return !store.search(probe).contains { $0.id == entry.id }
+            }
+            print("[verify][wiki] 检索自检：\(missing.isEmpty ? "通过（\(store.entries.count) 条）" : "失败 \(missing.count) 条")")
+            for entry in missing.prefix(3) {
+                print("[verify][wiki]   搜不到：\(entry.title.prefix(40))")
+            }
         }
 
         let summary = report.groups.map { "\($0.kind.title) \($0.issues.count)" }

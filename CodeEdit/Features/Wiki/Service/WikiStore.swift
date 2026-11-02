@@ -564,14 +564,17 @@ final class WikiStore: ObservableObject {
         return false
     }
 
-    /// 结构没变时，只把节点自身的展示字段刷新一遍（草稿标记）。
+    /// 结构没变时，只把节点自身的展示字段刷新一遍（草稿标记、类型）。
     ///
     /// 比起重建整张图，这里只改 `nodes[i]` 与索引字典里的一项，不碰邻接表。
+    /// `type` 必须一起刷：它决定图上节点的颜色，改类型不该画成旧颜色。
     private func refreshGraphNodes(_ updated: [WikiEntry]) {
         var changed: [WikiNode] = []
         for entry in updated {
-            guard var node = graph.node(entry.id), node.isDraft != entry.isDraft else { continue }
+            guard var node = graph.node(entry.id) else { continue }
+            guard node.isDraft != entry.isDraft || node.type != entry.type else { continue }
             node.isDraft = entry.isDraft
+            node.type = entry.type
             changed.append(node)
         }
         graph.updateNodes(changed)
