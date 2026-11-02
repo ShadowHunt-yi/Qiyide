@@ -69,6 +69,9 @@ struct WikiWindowView: View {
     /// 投影结果缓存：投影要遍历全部节点，不能每次 body 都算。
     @State private var projected: MindGraph?
     @State private var showBackfill = false
+    /// 一致性体检结果。由数据推导，不落盘。
+    @State private var coherence: CoherenceReport?
+    @State private var showCoherence = false
     /// 多选集合（批量操作的对象）。`selection` 始终是「当前展示详情」的那一条。
     @State private var multiSelection: Set<String> = []
     @State private var showBatchDelete = false
@@ -121,6 +124,8 @@ struct WikiWindowView: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
+            stageStrip
+            Divider()
             if let curatorMessage {
                 statusStrip(curatorMessage, color: .secondary, symbol: "sparkles")
                 Divider()
@@ -155,9 +160,23 @@ struct WikiWindowView: View {
         .sheet(isPresented: $showBackfill) {
             DomainBackfillSheet(root: store.root, graph: domains.graph)
         }
-        .onAppear { refreshProjection() }
+        .sheet(isPresented: $showCoherence) {
+            WikiCoherenceSheet(root: store.root, graph: domains.graph, store: store) {
+                recomputeCoherence()
+            }
+        }
+        .onAppear {
+            refreshProjection()
+            recomputeCoherence()
+        }
         .onChange(of: activeSpec) { _, _ in refreshProjection() }
-        .onChange(of: domains.revision) { _, _ in refreshProjection() }
+        .onChange(of: domains.revision) { _, _ in
+            refreshProjection()
+            recomputeCoherence()
+        }
+        .onChange(of: store.entries.count) { _, _ in
+            recomputeCoherence()
+        }
         .alert("删除 \(selectedEntries.count) 条知识？", isPresented: $showBatchDelete) {
             Button("移到废纸篓", role: .destructive) {
                 let count = store.delete(ids: selectedEntries.map(\.id))
@@ -281,6 +300,129 @@ struct WikiWindowView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    // MARK: 流水线状态
+
+    /// 建模到查阅的五个阶段。全部由数据推导，不落盘——
+    /// 存一份「已完成」的状态就会有它和现实脱节的那天。
+    private enum Stage {
+        case identify, anchor, generate, review, ready
+    }
+
+    private var stage: Stage {
+        if domains.graph.isEmpty { return .identify }
+        if !domains.isLocked { return .anchor }
+        if store.entries.isEmpty { return .generate }
+        if !store.drafts.isEmpty { return .review }
+        return .ready
+    }
+
+    private var stageStrip: some View {
+        HStack(spacing: 5) {
+            stageChip("识别", done: !domains.graph.isEmpty, active: stage == .identify) {
+                Task { await domains.analyze() }
+            }
+            stageArrow
+            stageChip("锚定", done: domains.isLocked, active: stage == .anchor) {
+                domains.lock()
+            }
+            stageArrow
+            stageChip(
+                "知识",
+                done: !store.entries.isEmpty,
+                active: stage == .generate,
+                badge: store.entries.isEmpty ? nil : "\(store.entries.count)"
+            ) {
+                generateMissingKnowledge()
+            }
+            stageArrow
+            stageChip(
+                "审核",
+                done: !store.entries.isEmpty && store.drafts.isEmpty,
+                active: stage == .review,
+                badge: store.drafts.isEmpty ? nil : "\(store.drafts.count)"
+            ) {
+                // 只筛不确认：AI 写的东西仍然要人一条条看过。
+                selectedDomain = nil
+                showDraftsOnly = true
+            }
+
+            Spacer()
+
+            Button {
+                showCoherence = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: (coherence?.isEmpty ?? true)
+                          ? "checkmark.shield"
+                          : "exclamationmark.shield")
+                        .font(.system(size: 9))
+                    Text(coherence.map { $0.isEmpty ? "一致" : "体检 \($0.total)" } ?? "体检")
+                        .font(.system(size: 10).monospacedDigit())
+                }
+                .foregroundStyle(coherence?.isEmpty == false ? Color.orange : Color.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("检查领域模型、知识条目与代码之间对不上的地方")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+    }
+
+    private func stageChip(
+        _ title: String,
+        done: Bool,
+        active: Bool,
+        badge: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: done
+                      ? "checkmark.circle.fill"
+                      : (active ? "circle.dotted" : "circle"))
+                    .font(.system(size: 9))
+                    .foregroundStyle(done ? Color.green : (active ? Color.accentColor : Color.secondary))
+                Text(title)
+                    .font(.system(size: 10, weight: active ? .medium : .regular))
+                    .foregroundStyle(active ? Color.primary : Color.secondary)
+                if let badge {
+                    Text(badge)
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(active ? Color.accentColor.opacity(0.10) : Color.clear, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(helpText(for: title))
+    }
+
+    private func helpText(for stage: String) -> String {
+        switch stage {
+        case "识别": return "扫包结构、命名、调用与注释，产出领域候选"
+        case "锚定": return "人工校正后锁定，避免下次识别覆盖"
+        case "知识": return "给还没有知识的域生成草稿"
+        case "审核": return "筛出草稿逐条确认"
+        default: return ""
+        }
+    }
+
+    private var stageArrow: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 7))
+            .foregroundStyle(.quaternary)
+    }
+
+    private func recomputeCoherence() {
+        coherence = WikiCoherence.check(root: store.root, graph: domains.graph, store: store)
     }
 
     // MARK: 内容

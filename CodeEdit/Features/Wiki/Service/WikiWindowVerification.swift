@@ -48,6 +48,20 @@ enum WikiWindowVerification {
         // 这样截出来的是「域详情」而不是空态——合并后最主要的新模块就是它。
         let model = DomainModelStore(root: root)
         let firstDomain = model.graph.domains.first?.id
+
+        // 顺手打一份体检结果：渲染出来是给人看排版的，数字给的是「逻辑对不对」。
+        let store = WikiStore(root: root)
+        store.reload()
+        let report = WikiCoherence.check(root: root, graph: model.graph, store: store)
+        let summary = report.groups.map { "\($0.kind.title) \($0.issues.count)" }
+            .joined(separator: " · ")
+        print("[verify][wiki] 体检：\(report.isEmpty ? "无问题" : summary)")
+        for group in report.groups {
+            for issue in group.issues.prefix(3) {
+                print("[verify][wiki]   \(group.kind.title)：\(issue.headline) — \(issue.detail)")
+            }
+        }
+
         let hosting = NSHostingView(rootView: WikiWindowView(
             root: root,
             workspace: nil,
