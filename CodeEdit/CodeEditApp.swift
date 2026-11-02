@@ -32,6 +32,8 @@ struct CodeEditApp: App {
         #if DEBUG
         // 无界面验证领域建模链路；未设置 QIYIDE_VERIFY_DOMAIN 时直接返回。
         DomainVerification.runIfRequested()
+        // 离屏渲染知识库窗口，用于检查合并后的排版；未设置时直接返回。
+        WikiWindowVerification.runIfRequested()
         #endif
     }
 

@@ -16,16 +16,19 @@ struct WikiCommands: Commands {
 
     var body: some Commands {
         CommandMenu("知识库") {
-            Button("领域建模…") {
+            // 主入口：领域、条目、导图、图谱、架构都在一个窗口里。
+            Button("打开知识库…") {
+                WikiWindowPresenter.show(workspace: windowController?.workspace)
+            }
+            .keyboardShortcut("k", modifiers: [.command, .option])
+
+            // 全屏建模保留独立窗口：导图在 1280 宽的三栏里只有 500 出头，
+            // 人工锚定（拖拽、改名、合并）时大画布更好用。日常查看走上面那个。
+            Button("全屏建模…") {
                 DomainModelWindowPresenter.show(workspace: windowController?.workspace)
             }
             .keyboardShortcut("d", modifiers: [.command, .option])
             .disabled(windowController?.workspace?.fileURL == nil)
-
-            Button("打开知识图谱…") {
-                WikiWindowPresenter.show(workspace: windowController?.workspace)
-            }
-            .keyboardShortcut("k", modifiers: [.command, .option])
 
             Divider()
 

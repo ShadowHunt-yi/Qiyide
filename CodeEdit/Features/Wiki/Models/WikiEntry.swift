@@ -112,11 +112,15 @@ struct WikiEntry: Identifiable, Hashable {
         return parts.suffix(2).joined(separator: "/")
     }
 
+    /// 列表里的摘要：正文第一个「像内容」的行。
+    ///
+    /// 跳过标题（`#`）和引用块（`>`）：领域建模生成的条目开头固定是
+    /// 「> 本条目由领域建模自动生成…」，240 条列表全显示同一句话，等于没摘要。
     var summary: String {
         let firstLine = body
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty && !$0.hasPrefix("#") }
+            .first { !$0.isEmpty && !$0.hasPrefix("#") && !$0.hasPrefix(">") }
         return firstLine ?? ""
     }
 
