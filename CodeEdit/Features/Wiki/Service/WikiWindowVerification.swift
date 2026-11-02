@@ -49,10 +49,55 @@ enum WikiWindowVerification {
         let model = DomainModelStore(root: root)
         let firstDomain = model.graph.domains.first?.id
 
-        // 顺手打一份体检结果：渲染出来是给人看排版的，数字给的是「逻辑对不对」。
+        // 顺手打一份体检结果 + 关键路径耗时：
+        // 渲染出来是给人看排版的，数字给的是「逻辑对不对、快不快」。
+        var clock = Date()
         let store = WikiStore(root: root)
         store.reload()
+        let reloadMS = Date().timeIntervalSince(clock) * 1000
+
+        clock = Date()
         let report = WikiCoherence.check(root: root, graph: model.graph, store: store)
+        let coherenceMS = Date().timeIntervalSince(clock) * 1000
+
+        clock = Date()
+        for spec in ViewSpec.presets {
+            _ = ViewProjector.project(model.graph, spec: spec)
+        }
+        let projectionMS = Date().timeIntervalSince(clock) * 1000 / Double(ViewSpec.presets.count)
+
+        clock = Date()
+        let expanded = Set(model.graph.domains.map(\.id))
+        let layout = MindMapLayout.compute(
+            graph: model.graph,
+            size: CGSize(width: 520, height: 640),
+            expanded: expanded
+        )
+        let layoutMS = Date().timeIntervalSince(clock) * 1000
+
+        clock = Date()
+        let backfill = WikiDomainBackfill.report(graph: model.graph, store: store)
+        let backfillMS = Date().timeIntervalSince(clock) * 1000
+
+        print(String(
+            format: "[verify][wiki] 性能：reload %.1fms · 体检 %.1fms · 投影 %.2fms/视角 · 布局 %.1fms(%d 卡片) · 归属 %.1fms",
+            reloadMS, coherenceMS, projectionMS, layoutMS, layout.placements.count, backfillMS
+        ))
+        print("[verify][wiki] 规模：\(store.entries.count) 条知识 / \(model.graph.domains.count) 个域 / "
+              + "归属建议 \(backfill.suggestions.count)")
+
+        // 单条保存走的是增量路径。要测它就得写文件，所以只在显式要求时跑，
+        // 并且应当指向一个副本目录，别指向真实仓库。
+        if ProcessInfo.processInfo.environment["QIYIDE_VERIFY_WIKI_WRITE"] == "1",
+           let sample = store.entries.first {
+            let start = Date()
+            try? store.save(sample)
+            print(String(
+                format: "[verify][wiki] 单条保存 %.1fms（增量，不重读磁盘）",
+                Date().timeIntervalSince(start) * 1000
+            ))
+        }
+
         let summary = report.groups.map { "\($0.kind.title) \($0.issues.count)" }
             .joined(separator: " · ")
         print("[verify][wiki] 体检：\(report.isEmpty ? "无问题" : summary)")

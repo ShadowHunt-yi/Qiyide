@@ -133,6 +133,12 @@ struct WikiEntry: Identifiable, Hashable {
 
 extension WikiEntry {
 
+    /// ISO8601 格式化器。**必须复用**。
+    ///
+    /// `ISO8601DateFormatter` 每次构造都要重建内部状态机，实测单次百微秒级；
+    /// 240 条条目的解析 + 序列化就是几百次构造，占掉 reload 的近一半时间。
+    private static let iso8601 = ISO8601DateFormatter()
+
     /// 从文件正文解析。缺字段一律给默认值，绝不因为格式问题丢弃整条知识。
     static func parse(text: String, fileURL: URL) -> WikiEntry {
         var title = fileURL.deletingPathExtension().lastPathComponent
@@ -172,7 +178,7 @@ extension WikiEntry {
                 case "generated":
                     generatedBy = value
                 case "updated":
-                    if let date = ISO8601DateFormatter().date(from: value) { updatedAt = date }
+                    if let date = Self.iso8601.date(from: value) { updatedAt = date }
                 default:
                     continue
                 }
@@ -209,7 +215,7 @@ extension WikiEntry {
         }
         lines.append("status: \(status.rawValue)")
         if !generatedBy.isEmpty { lines.append("generated: \(generatedBy)") }
-        lines.append("updated: \(ISO8601DateFormatter().string(from: updatedAt))")
+        lines.append("updated: \(Self.iso8601.string(from: updatedAt))")
         lines.append("---")
         lines.append("")
         lines.append(body)

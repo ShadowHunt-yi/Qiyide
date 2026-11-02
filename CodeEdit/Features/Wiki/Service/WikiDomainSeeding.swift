@@ -39,6 +39,10 @@ enum WikiDomainSeeding {
             return result
         }
 
+        // 先把要写的条目全部准备好，最后一次落盘。
+        // 逐条 `create` 会触发 N 次全库重扫，8 个域就是 16 次重扫 + 重排。
+        var prepared: [WikiEntry] = []
+
         for domain in graph.domains {
             let title = domain.displayTitle
 
@@ -61,18 +65,22 @@ enum WikiDomainSeeding {
                 continue
             }
 
-            var entry = try store.create(type: .module, title: title)
+            var entry = try store.prepareEntry(type: .module, title: title)
             entry.tags = ["domain", domain.kind.title]
             entry.sources = sources(for: domain, in: graph)
             entry.domains = [domain.id]
             entry.body = body(for: domain, in: graph)
             entry.status = .draft
             entry.generatedBy = "领域建模"
-            try store.save(entry)
+            prepared.append(entry)
 
-            result.created += 1
             result.titles.append(title)
         }
+
+        if !prepared.isEmpty {
+            try store.save(prepared)
+        }
+        result.created = prepared.count
 
         return result
     }

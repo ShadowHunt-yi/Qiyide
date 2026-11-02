@@ -16,19 +16,13 @@ struct WikiCommands: Commands {
 
     var body: some Commands {
         CommandMenu("知识库") {
-            // 主入口：领域、条目、导图、图谱、架构都在一个窗口里。
+            // 唯一入口：领域建模、知识条目、导图/图谱/架构、体检都在一个窗口里。
+            // 曾经「领域建模」和「知识图谱」是两个独立窗口，各持一份领域数据，
+            // 结果同一个域在两边是两个东西（详见 WikiCoherence 的注释）。
             Button("打开知识库…") {
                 WikiWindowPresenter.show(workspace: windowController?.workspace)
             }
             .keyboardShortcut("k", modifiers: [.command, .option])
-
-            // 全屏建模保留独立窗口：导图在 1280 宽的三栏里只有 500 出头，
-            // 人工锚定（拖拽、改名、合并）时大画布更好用。日常查看走上面那个。
-            Button("全屏建模…") {
-                DomainModelWindowPresenter.show(workspace: windowController?.workspace)
-            }
-            .keyboardShortcut("d", modifiers: [.command, .option])
-            .disabled(windowController?.workspace?.fileURL == nil)
 
             Divider()
 

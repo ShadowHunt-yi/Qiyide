@@ -66,6 +66,8 @@ struct WikiWindowView: View {
     @State private var selectedDomain: String?
     /// 导图模式下选的视角：nil 表示建模视图（可编辑），否则只读投影。
     @State private var activeSpec: ViewSpec?
+    /// 自定义视角。存在 `.qiyide/wiki/viewspec/*.json`，随仓库共享。
+    @State private var customSpecs: [ViewSpec] = []
     /// 投影结果缓存：投影要遍历全部节点，不能每次 body 都算。
     @State private var projected: MindGraph?
     @State private var showBackfill = false
@@ -158,7 +160,9 @@ struct WikiWindowView: View {
             }
         }
         .sheet(isPresented: $showBackfill) {
-            DomainBackfillSheet(root: store.root, graph: domains.graph)
+            DomainBackfillSheet(root: store.root, graph: domains.graph, store: store) {
+                recomputeCoherence()
+            }
         }
         .sheet(isPresented: $showCoherence) {
             WikiCoherenceSheet(root: store.root, graph: domains.graph, store: store) {
@@ -168,13 +172,14 @@ struct WikiWindowView: View {
         .onAppear {
             refreshProjection()
             recomputeCoherence()
+            customSpecs = ViewSpecStore.loadAll(root: store.root)
         }
         .onChange(of: activeSpec) { _, _ in refreshProjection() }
         .onChange(of: domains.revision) { _, _ in
             refreshProjection()
             recomputeCoherence()
         }
-        .onChange(of: store.entries.count) { _, _ in
+        .onChange(of: store.contentRevision) { _, _ in
             recomputeCoherence()
         }
         .alert("删除 \(selectedEntries.count) 条知识？", isPresented: $showBatchDelete) {
@@ -287,6 +292,17 @@ struct WikiWindowView: View {
                 Image(systemName: "arrow.clockwise")
             }
             .help("重新扫描 .qiyide/wiki")
+
+            Menu {
+                Button("导出领域大纲（Markdown）") { exportOutline() }
+                Button("导出领域模型（JSON）") { exportModel() }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(domains.graph.isEmpty)
+            .help("导出当前领域模型")
 
             Menu {
                 ForEach(WikiEntryType.allCases) { type in
@@ -508,6 +524,12 @@ struct WikiWindowView: View {
                         ForEach(ViewSpec.presets) { spec in
                             Text(spec.name).tag(ViewSpec?.some(spec))
                         }
+                        if !customSpecs.isEmpty {
+                            Divider()
+                            ForEach(customSpecs) { spec in
+                                Text(spec.name).tag(ViewSpec?.some(spec))
+                            }
+                        }
                     }
                     .labelsHidden()
                     .frame(width: 124)
@@ -683,12 +705,15 @@ struct WikiWindowView: View {
     private static let unassignedKey = "__unassigned__"
 
     private var listPane: some View {
-        ScrollView {
+        // 只算一次。`filteredEntries` 会对整库做过滤/检索，
+        // 原来头部计数、空态判断、ForEach 各调一次，一次 body 要扫三遍。
+        let entries = filteredEntries
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if !domains.graph.domains.isEmpty {
                     domainSection
                 }
-                entrySection
+                entrySection(entries)
             }
         }
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
@@ -732,7 +757,7 @@ struct WikiWindowView: View {
 
         // 一条都没打标时，域下面的数字全是 0，看起来像「整个知识库都缺」。
         // 实际情况是「还没建立归属」，给一条直达补写的入口，而不是让每行都报警。
-        if store.taggedDomainIDs.isEmpty && !store.entries.isEmpty {
+        if !store.hasDomainTags && !store.entries.isEmpty {
             Button {
                 showBackfill = true
             } label: {
@@ -758,7 +783,7 @@ struct WikiWindowView: View {
         let count = store.entries(inDomain: node.id).count
         let isSelected = selectedDomain == node.id
         // 还没打标时显示「—」而不是「缺口」：0 不代表没有知识，只代表没建立归属。
-        let tagged = !store.taggedDomainIDs.isEmpty
+        let tagged = store.hasDomainTags
         return Button {
             selectedDomain = isSelected ? nil : node.id
             selection = nil
@@ -817,11 +842,11 @@ struct WikiWindowView: View {
     }
 
     @ViewBuilder
-    private var entrySection: some View {
+    private func entrySection(_ entries: [WikiEntry]) -> some View {
         if !domains.graph.domains.isEmpty || selectedDomain != nil {
             HStack(spacing: 5) {
                 Text(filterTitle)
-                Text("\(filteredEntries.count)")
+                Text("\(entries.count)")
                     .monospacedDigit()
                 Spacer()
             }
@@ -832,13 +857,13 @@ struct WikiWindowView: View {
             .padding(.bottom, 2)
         }
 
-        if filteredEntries.isEmpty {
+        if entries.isEmpty {
             Text(emptyListText)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .padding(16)
         }
-        ForEach(filteredEntries) { entry in
+        ForEach(entries) { entry in
             row(entry)
             Divider()
         }
@@ -856,7 +881,7 @@ struct WikiWindowView: View {
         if selectedDomain != nil {
             // 条目全都没打标时，说「这个域没有知识」是错的——
             // 知识在，只是还没建立归属。两者的下一步动作完全不同。
-            if store.taggedDomainIDs.isEmpty {
+            if !store.hasDomainTags {
                 return "条目还没标归属，先在「域归属」里补写"
             }
             return "这个域还没有知识，可在导图模式点「⋯ → 生成缺失知识」"
@@ -1038,6 +1063,7 @@ struct WikiWindowView: View {
         if let draft = editing {
             WikiEntryEditor(
                 draft: draft,
+                domainOptions: domains.graph.domains.map { ($0.id, $0.displayTitle) },
                 onSave: { saved in
                     try? store.save(saved)
                     editing = nil
@@ -1050,7 +1076,18 @@ struct WikiWindowView: View {
         } else if let domainID = selectedDomain,
                   domainID != Self.unassignedKey,
                   let node = domains.graph.node(domainID) {
-            domainDetail(node)
+            WikiDomainDetailView(
+                node: node,
+                entries: store.entries(inDomain: domainID),
+                modules: domains.graph.children(of: domainID)
+                    .sorted { $0.classCount > $1.classCount },
+                onOpenMindMap: {
+                    centerMode = .mindmap
+                    activeSpec = nil
+                },
+                onGenerate: { generateMissingKnowledge() },
+                onSelectEntry: { selection = $0 }
+            )
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "sidebar.right")
@@ -1064,160 +1101,83 @@ struct WikiWindowView: View {
         }
     }
 
-    /// 域详情：选中左栏的域、或在导图上点一个域时显示。
+    // 域详情已抽到 `WikiDomainDetailView`：它只依赖「节点 + 条目 + 模块 + 三个回调」，
+    // 不需要窗口的其它状态。这里只负责取数和转发回调。
+
+    /// 一行关联代码。
     ///
-    /// 它是「结构」和「知识」的接缝：上半是模型算出来的事实（依据、模块、负责人），
-    /// 下半是挂在这个域下的知识条目。在此之前，这两半分处两个窗口。
-    private func domainDetail(_ node: MindNode) -> some View {
-        let entries = store.entries(inDomain: node.id)
-        let modules = domains.graph.children(of: node.id).sorted { $0.classCount > $1.classCount }
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 6) {
-                    Text(node.displayTitle)
-                        .font(.system(size: 14, weight: .medium))
-                        .lineLimit(2)
-                    if node.isManual {
-                        chip("人工", color: .accentColor)
-                    }
-                    Spacer()
-                    Button("打开导图") {
-                        centerMode = .mindmap
-                        activeSpec = nil
-                    }
-                    .controlSize(.small)
-                }
+    /// 三种状态要分清，否则用户会以为功能坏了：
+    /// - 包路径（`agent/suggest`）：模型给出的归属，不是文件，只展示；
+    /// - 文件且存在：可点开；
+    /// - 文件但不存在：橙色标出「已失效」——这正是体检里的「过期关联」。
+    private func sourceRow(_ source: String) -> some View {
+        let isFile = !(source as NSString).pathExtension.isEmpty
+        let exists = isFile
+            ? FileManager.default.fileExists(atPath: store.root.appending(path: source).path)
+            : true
+        let clickable = isFile && exists
 
-                HStack(spacing: 8) {
-                    Text("领域")
-                    Text("\(node.classCount) 类")
-                    Text("\(node.fileCount) 文件")
-                    Text("\(entries.count) 条知识")
-                        .foregroundStyle(entries.isEmpty ? Color.orange : Color.secondary)
+        return Button {
+            if clickable { openSource(source) }
+        } label: {
+            HStack(spacing: 4) {
+                if isFile && !exists {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.orange)
                 }
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-
-                if !node.packages.isEmpty {
-                    section("归属包") {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(node.packages.prefix(6), id: \.self) { package in
-                                Text(package)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                        }
-                    }
-                }
-
-                if !node.owner.authors.isEmpty || node.owner.manual != nil {
-                    section("负责人") {
-                        VStack(alignment: .leading, spacing: 2) {
-                            if let manual = node.owner.manual {
-                                Text("人工指定：\(manual)")
-                                    .font(.system(size: 10))
-                            }
-                            ForEach(node.owner.authors.prefix(4), id: \.name) { author in
-                                HStack(spacing: 6) {
-                                    Text(author.name)
-                                        .font(.system(size: 10, design: .monospaced))
-                                    Spacer()
-                                    Text("\(author.commits) 次")
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if !node.evidence.isEmpty {
-                    section("判定依据") {
-                        VStack(alignment: .leading, spacing: 5) {
-                            ForEach(Array(node.evidence.enumerated()), id: \.offset) { _, item in
-                                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                    chip(item.kind.title, color: .secondary)
-                                    Text(item.detail)
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Spacer(minLength: 2)
-                                    Text(String(format: "%.0f%%", item.weight * 100))
-                                        .font(.system(size: 9).monospacedDigit())
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if !modules.isEmpty {
-                    section("包含模块（\(modules.count)）") {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(modules.prefix(12)) { module in
-                                HStack(spacing: 6) {
-                                    Text(module.displayTitle)
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text("\(module.classCount) 类")
-                                        .font(.system(size: 9).monospacedDigit())
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                            if modules.count > 12 {
-                                Text("…还有 \(modules.count - 12) 个")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                }
-
-                section("知识条目（\(entries.count)）") {
-                    if entries.isEmpty {
-                        HStack(spacing: 6) {
-                            Text("这个域还没有知识")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.orange)
-                            Button("生成草稿") { generateMissingKnowledge() }
-                                .controlSize(.small)
-                        }
-                    } else {
-                        VStack(alignment: .leading, spacing: 3) {
-                            ForEach(entries) { entry in
-                                Button {
-                                    selection = entry.id
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Circle()
-                                            .fill(WikiGraphView.color(for: entry.type))
-                                            .frame(width: 6, height: 6)
-                                        Text(entry.displayTitle)
-                                            .font(.system(size: 10))
-                                            .lineLimit(1)
-                                        if entry.isDraft {
-                                            Text("草稿")
-                                                .font(.system(size: 8))
-                                                .foregroundStyle(.orange)
-                                        }
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 7))
-                                            .foregroundStyle(.quaternary)
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
+                Text(source)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(clickable ? Color.accentColor : (exists ? Color.secondary : Color.orange))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                if clickable {
+                    Image(systemName: "arrow.up.forward.square")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.quaternary)
                 }
             }
-            .padding(14)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(!clickable)
+        .help(isFile ? (exists ? "在编辑器中打开" : "文件已不存在") : "领域包路径（不是文件）")
+    }
+
+    /// 在工作区里打开源码。没有工作区时退回访达。
+    private func openSource(_ source: String) {
+        let url = store.root.appending(path: source)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            curatorError = "文件已不存在：\(source)"
+            return
+        }
+        guard let editor = workspace?.editorManager?.activeEditor else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            return
+        }
+        editor.openTab(file: CEWorkspaceFile(url: url), asTemporary: true)
+    }
+
+    /// 导出领域大纲。原独立建模窗口里的功能，合并后搬到这里。
+    private func exportOutline() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "domains.md"
+        panel.allowedContentTypes = [.plainText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? domains.markdownOutline().write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func exportModel() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "domains.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(domains.graph) else { return }
+        try? data.write(to: url, options: .atomic)
     }
 
     private func detail(_ entry: WikiEntry) -> some View {
@@ -1302,11 +1262,7 @@ struct WikiWindowView: View {
                         section("关联代码") {
                             VStack(alignment: .leading, spacing: 3) {
                                 ForEach(entry.sources, id: \.self) { source in
-                                    Text(source)
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
+                                    sourceRow(source)
                                 }
                             }
                         }
@@ -1499,13 +1455,9 @@ struct WikiWindowView: View {
         .background(Color.orange.opacity(0.10))
     }
 
+    /// 分组标题 + 内容。样式统一在 `WikiSection`，这里只保留调用形式。
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title)
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-            content()
-        }
+        WikiSection(title: title, content: content)
     }
 
     /// `domain:service/portrait` → `service/portrait`。
@@ -1515,13 +1467,7 @@ struct WikiWindowView: View {
     }
 
     private func chip(_ text: String, color: Color) -> some View {
-        Text(text)
-            .font(.system(size: 10))
-            .foregroundStyle(color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+        WikiChip(text: text, color: color)
     }
 
     private func create(type: WikiEntryType) {
@@ -1531,149 +1477,4 @@ struct WikiWindowView: View {
     }
 }
 
-// MARK: - 编辑器
-
-struct WikiEntryEditor: View {
-
-    @State private var draft: WikiEntry
-    private let onSave: (WikiEntry) -> Void
-    private let onCancel: () -> Void
-    private let onDelete: () -> Void
-
-    @State private var tagsText: String
-    @State private var sourcesText: String
-    @State private var relationsText: String
-
-    init(
-        draft: WikiEntry,
-        onSave: @escaping (WikiEntry) -> Void,
-        onCancel: @escaping () -> Void,
-        onDelete: @escaping () -> Void
-    ) {
-        _draft = State(initialValue: draft)
-        self.onSave = onSave
-        self.onCancel = onCancel
-        self.onDelete = onDelete
-        _tagsText = State(initialValue: draft.tags.joined(separator: ", "))
-        _sourcesText = State(initialValue: draft.sources.joined(separator: ", "))
-        _relationsText = State(
-            initialValue: draft.relations.map { "\($0.kind):\($0.target)" }.joined(separator: "; ")
-        )
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("编辑条目")
-                    .font(.system(size: 12, weight: .medium))
-                Spacer()
-                Button("取消", action: onCancel)
-                    .controlSize(.small)
-                Button("保存") {
-                    save()
-                }
-                .controlSize(.small)
-                .keyboardShortcut("s", modifiers: .command)
-            }
-            .padding(12)
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    labeled("标题") {
-                        TextField("标题", text: $draft.title)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 12))
-                    }
-                    labeled("类型") {
-                        Picker("", selection: $draft.type) {
-                            ForEach(WikiEntryType.allCases) { type in
-                                Text(type.title).tag(type)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                    }
-                    labeled("标签（逗号分隔）") {
-                        TextField("锚点, 渲染", text: $tagsText)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11))
-                    }
-                    labeled("关联代码路径（逗号分隔）") {
-                        TextField("CodeEdit/Features/...", text: $sourcesText)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11, design: .monospaced))
-                    }
-                    labeled("关系（关系词:目标; 多条用分号）") {
-                        TextField("属于:改动审查; 导致:回归缺陷", text: $relationsText)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11))
-                    }
-                    labeled("正文（用 [[标题]] 建立链接）") {
-                        TextEditor(text: $draft.body)
-                            .font(.system(size: 12))
-                            .frame(minHeight: 220)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 0.5)
-                            )
-                    }
-                }
-                .padding(12)
-            }
-
-            Divider()
-            HStack {
-                Button("删除", role: .destructive, action: onDelete)
-                    .controlSize(.small)
-                Spacer()
-                Text("保存到 .qiyide/wiki/\(draft.id).md")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(10)
-        }
-    }
-
-    private func labeled<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-            content()
-        }
-    }
-
-    private func save() {
-        var saved = draft
-        saved.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if saved.title.isEmpty { saved.title = draft.id }
-        saved.tags = split(tagsText)
-        saved.sources = split(sourcesText)
-        saved.relations = relationsText
-            .split(separator: ";")
-            .compactMap { item -> WikiRelation? in
-                let text = item.trimmingCharacters(in: .whitespaces)
-                guard !text.isEmpty else { return nil }
-                guard let separator = text.firstIndex(of: ":") else {
-                    return WikiRelation(kind: "相关", target: text)
-                }
-                let kind = String(text[..<separator]).trimmingCharacters(in: .whitespaces)
-                let target = String(text[text.index(after: separator)...])
-                    .trimmingCharacters(in: .whitespaces)
-                guard !target.isEmpty else { return nil }
-                return WikiRelation(kind: kind.isEmpty ? "相关" : kind, target: target)
-            }
-        onSave(saved)
-    }
-
-    private func split(_ text: String) -> [String] {
-        text
-            .split(whereSeparator: { $0 == "," || $0 == "，" })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-    }
-}
+// 条目编辑器已移到 `WikiEntryEditor.swift`：它只依赖草稿与回调，不需要窗口状态。

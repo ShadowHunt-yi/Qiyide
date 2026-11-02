@@ -110,7 +110,7 @@ enum WikiCoherence {
         // 2) 空缺 / 未归类。
         // 一条都没打标时，不该报「8 个域全都空缺」——那只是没建立归属，
         // 一条「未归类」就说明了全部问题。
-        if store.taggedDomainIDs.isEmpty {
+        if !store.hasDomainTags {
             if !store.entries.isEmpty {
                 report.issues.append(CoherenceReport.Issue(
                     kind: .unassigned,

@@ -15,6 +15,11 @@ struct DomainBackfillSheet: View {
 
     let root: URL
     let graph: MindGraph
+    /// 与父页面共用同一个 store：补写后父页面的域计数、体检要立刻跟着变。
+    /// 早先这里自己 new 了一个 WikiStore，写完文件父页面毫不知情，
+    /// 用户会以为按钮没生效。
+    @ObservedObject var store: WikiStore
+    var onChanged: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var report: DomainBackfillReport?
@@ -198,19 +203,16 @@ struct DomainBackfillSheet: View {
     // MARK: 动作
 
     private func load() {
-        let store = WikiStore(root: root)
-        store.reload()
         report = WikiDomainBackfill.report(graph: graph, store: store)
     }
 
     private func applySuggestions() {
         guard let report else { return }
         working = true
-        let store = WikiStore(root: root)
-        store.reload()
         do {
             let count = try WikiDomainBackfill.apply(report, store: store)
             message = "已补写 \(count) 条"
+            onChanged()
         } catch {
             message = "写入失败：\(error.localizedDescription)"
         }

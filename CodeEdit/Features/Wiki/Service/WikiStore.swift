@@ -21,6 +21,12 @@ final class WikiStore: ObservableObject {
     /// 结构层：域划分与域间依赖。独立于条目，不会因为条目增删而失效。
     @Published private(set) var architecture = WikiArchitecture.empty
 
+    /// 内容版本号：任何一次写入都递增。
+    ///
+    /// 视图用它判断「派生数据要不要重算」。原来盯着 `entries.count` 是不准的：
+    /// 改一条条目的正文、状态、归属都不会改变数量，但体检结果已经过期了。
+    @Published private(set) var contentRevision: Int = 0
+
     let root: URL
 
     /// 标题（归一化）→ 条目 id
@@ -94,6 +100,7 @@ final class WikiStore: ObservableObject {
         rebuildIndexes()
         rebuildGraph()
         architecture = WikiArchitecture.load(root: root)
+        contentRevision &+= 1
         isLoaded = true
     }
 
@@ -126,12 +133,19 @@ final class WikiStore: ObservableObject {
         }
     }
 
+    /// 正文 `[[链接]]` 的正则。编译一次复用。
+    ///
+    /// 原来每个条目都 `try? NSRegularExpression(...)` 新建一次：240 条就是 240 次编译，
+    /// 是 `reload` 的主要开销之一（正则编译在 Debug 下尤其贵）。
+    private static let bodyLinkRegex = try? NSRegularExpression(
+        pattern: "\\[\\[([^\\[\\]]+)\\]\\]"
+    )
+
     /// 正文里的 `[[链接]]`，按出现顺序去重。
     private func bodyLinks(of entry: WikiEntry) -> [String] {
         var seen: Set<String> = []
         var result: [String] = []
-        let pattern = "\\[\\[([^\\[\\]]+)\\]\\]"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = Self.bodyLinkRegex else { return [] }
         let range = NSRange(entry.body.startIndex..<entry.body.endIndex, in: entry.body)
         regex.enumerateMatches(in: entry.body, range: range) { match, _, _ in
             guard let match, match.numberOfRanges > 1,
@@ -287,6 +301,14 @@ final class WikiStore: ObservableObject {
         Set(entriesByDomain.keys)
     }
 
+    /// 是否有任何条目带域标记。
+    ///
+    /// 界面上到处要判「打标了没有」，每次都 `!taggedDomainIDs.isEmpty` 会现造一个 Set；
+    /// 这里直接看索引空不空，O(1)。
+    var hasDomainTags: Bool {
+        !entriesByDomain.isEmpty
+    }
+
     /// 简单打分检索：标题命中权重最高，其次标签，最后正文。
     ///
     /// 小写副本在重建索引时算好一次。搜索框是「每敲一个字搜一次」，
@@ -349,7 +371,49 @@ final class WikiStore: ObservableObject {
         var updated = entry
         updated.updatedAt = Date()
         try write(updated)
-        reload()
+        // 增量更新，不重读磁盘。
+        //
+        // `reload()` 要把 240 个 md 全部重读重解析（实测 225ms），而 save 的入参
+        // 本来就是最新内容——再从磁盘读回来是纯浪费。批量写仍走 `save([...])`，
+        // 那里最后一次 reload 更简单可靠，而且批量本来就是「一次性动作」。
+        upsert(updated)
+    }
+
+    /// 把一条条目并入内存索引并重建派生数据（不再读文件）。
+    private func upsert(_ entry: WikiEntry) {
+        if let index = entries.firstIndex(where: { $0.id == entry.id }) {
+            entries[index] = entry
+        } else {
+            entries.append(entry)
+        }
+        entries.sort { $0.updatedAt > $1.updatedAt }
+        rebuildIndexes()
+        rebuildGraph()
+        contentRevision &+= 1
+    }
+
+    /// 只准备条目对象（分配 id 与文件路径），**不写盘也不重扫**。
+    ///
+    /// 批量生成时用。领域生成一次要写 8 条，若逐条 `create`，
+    /// 每条都会触发一次全库重扫（重解析 240 个 md + 重建索引 + 重排图谱），
+    /// 8 条就是 8 次——这部分开销比生成本身大得多。
+    func prepareEntry(type: WikiEntryType, title: String) throws -> WikiEntry {
+        try ensureDirectory()
+        let id = uniqueID(basedOn: title)
+        let url = directory.appending(path: "\(id).md")
+        var entry = WikiEntry(
+            id: id,
+            title: title,
+            type: type,
+            tags: [],
+            sources: [],
+            relations: [],
+            body: "",
+            updatedAt: Date(),
+            fileURL: url
+        )
+        entry.updatedAt = Date()
+        return entry
     }
 
     /// 把 AI 生成的草稿落盘。永远是 draft，必须由人确认后才成为可信知识。
