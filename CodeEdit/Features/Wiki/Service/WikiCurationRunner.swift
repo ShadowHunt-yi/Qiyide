@@ -229,7 +229,9 @@ final class WikiCurationRunner: ObservableObject {
             currentRound = job.round + 1
             job.round = currentRound - 1
             if let root { job.save(root: root) }
+            let roundStartedAt = Date()
             let result = await runRound()
+            let roundSeconds = Date().timeIntervalSince(roundStartedAt)
 
             if result.aborted {
                 // 没有待处理文件：这是正常终态。
@@ -239,6 +241,17 @@ final class WikiCurationRunner: ObservableObject {
             job.round += 1
             job.updatedAt = Date().timeIntervalSince1970
             job.save(root: root ?? URL(fileURLWithPath: NSTemporaryDirectory()))
+
+            // 进度按「已建档文件 / 全仓文件」走，而不是阶段内的固定值：
+            // 一轮可能跑一两分钟，进度条不动会让人以为卡死了。
+            if totalCandidates > 0 {
+                progress = min(Double(job.filesDone) / Double(totalCandidates), 0.99)
+            }
+            // 每轮把耗时写进日志，下次「卡了多久才算卡」就有据可依。
+            append(
+                "第 \(job.round) 轮完成：\(Int(roundSeconds))s · 理解 \(result.understood) · "
+                    + "写入 \(result.written) · 剩余 \(result.remaining)"
+            )
 
             if result.understood == 0 && result.written == 0 {
                 consecutiveEmpty += 1
@@ -273,9 +286,9 @@ final class WikiCurationRunner: ObservableObject {
             status = .paused
         }
         persist(status: status)
-        task = nil
-        store = nil
-
+        // 注意顺序：收尾补边要用 store，必须先跑再释放。
+        // 原来这里先 `store = nil` 再 `if let store`，那段代码永远不会执行——
+        // 于是「跑完后把关系补齐」这一步从来没有发生过。
         if status == .finished {
             if let store, let graph = dependencyGraph {
                 reconcileRelations(store: store, graph: graph)
@@ -290,6 +303,8 @@ final class WikiCurationRunner: ObservableObject {
         } else if isPaused {
             detail = "已暂停，可继续"
         }
+        task = nil
+        store = nil
     }
 
     private func persist(status: WikiCurationStatus) {
@@ -331,6 +346,16 @@ final class WikiCurationRunner: ObservableObject {
             errorMessage = "没有找到可分析的源码文件"
             return RoundResult(aborted: true)
         }
+
+        // 模块名 → 该模块的全部文件。
+        //
+        // `pendingModules` 下面会被过滤成「只剩未建档文件」，那是给调度用的；
+        // 写条目时必须用这份完整的，否则 `.replace` 每次都会把已建档的文件
+        // 从 sources 与正文里摘掉，它们下一轮又变回待处理——同一个模块被反复重写。
+        let fullFilesByModule = Dictionary(
+            modules.map { ($0.name, $0.files) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         // 先建依赖图：后面的排序与模块关系都以它为准，不再靠模型猜。
         let graph = await Task.detached(priority: .userInitiated) {
@@ -510,18 +535,20 @@ final class WikiCurationRunner: ObservableObject {
                 guard let module = selected.first(where: { $0.name == outcome.module }) else { continue }
                 stage = .write
                 detail = "写入草稿 \(module.name)"
+                let fullFiles = fullFilesByModule[module.name] ?? module.files
                 let draft = makeDraft(
                     module: module,
                     payload: payload,
                     insights: resolved,
                     existing: knownTitles.contains(module.name),
-                    graph: graph
+                    graph: graph,
+                    allFiles: fullFiles
                 )
                 do {
                     _ = try store.applyDraft(
                         draft,
                         generatedBy: AINarrativeStore.shared.providerLabel,
-                        sources: module.files.map(\.path),
+                        sources: fullFiles.map(\.path),
                         domainID: domainByModule[module.name]?.domainID,
                         // 关键：这一轮十几条写完后只刷新一次，
                         // 否则每条都触发力导向布局，主线程直接卡死。
@@ -673,13 +700,17 @@ final class WikiCurationRunner: ObservableObject {
         payload: WikiModuleDraftPayload,
         insights: [String: RepoFileInsight],
         existing: Bool,
-        graph: WikiDependencyGraph
+        graph: WikiDependencyGraph,
+        allFiles: [RepoFileCandidate]
     ) -> WikiDraft {
         var body: [String] = []
         body.append("**职责**：\(payload.responsibility)")
         body.append("")
         body.append("**关键文件**")
-        for file in module.files {
+        // 用模块的**全部**文件，而不是本轮待处理的子集：
+        // 用子集写正文 + `.replace` 合并，会让条目每重写一次就少几个文件，
+        // 被摘掉的文件下一轮又变回待处理，反复重写、永远跑不完。
+        for file in allFiles {
             let purpose = insights[file.path]?.purpose ?? ""
             body.append("- `\(file.fileName)` — \(purpose)")
         }
@@ -710,8 +741,8 @@ final class WikiCurationRunner: ObservableObject {
             tags: ["仓库建档"],
             relations: relations(from: graph, module: module.name),
             body: body.joined(separator: "\n"),
-            reason: "来自整仓建档：\(module.files.count) 个文件",
-            sources: module.files.map(\.path),
+            reason: "来自整仓建档：\(allFiles.count) 个文件",
+            sources: allFiles.map(\.path),
             // 重复建档必须整块替换，否则同一模块会累积多段互相矛盾的结论。
             mergeMode: .replace
         )

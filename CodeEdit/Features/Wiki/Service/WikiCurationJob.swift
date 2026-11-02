@@ -81,7 +81,13 @@ struct WikiCurationJob: Codable {
               let job = try? JSONDecoder().decode(WikiCurationJob.self, from: data) else {
             return WikiCurationJob()
         }
-        return job
+        var normalized = job
+        // 进程已经不在跑了还读得到 `running`，只能说明上次是被杀或崩溃。
+        // 归一化成 paused，否则界面会一直显示一个永远不会推进的「运行中」。
+        if normalized.status == .running {
+            normalized.status = .paused
+        }
+        return normalized
     }
 
     func save(root: URL) {

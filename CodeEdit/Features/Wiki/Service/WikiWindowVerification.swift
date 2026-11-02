@@ -159,6 +159,39 @@ enum WikiWindowVerification {
                 try? FileManager.default.removeItem(at: created.fileURL)
                 store.reloadNow()
             }
+
+            // 震荡自检：同一模块分两轮写，sources 必须累加。
+            //
+            // 建档按轮处理，第二轮只带「本轮待处理的文件」。如果这里用覆盖，
+            // 第一轮的文件会从条目里被摘掉 → 下一轮又变回待处理 → 无限重写。
+            var round1 = WikiDraft(
+                action: .create,
+                target: "",
+                title: "震荡自检临时条目",
+                type: .module,
+                tags: ["自检"],
+                relations: [],
+                body: "第一轮：A + B",
+                reason: "",
+                sources: [],
+                mergeMode: .replace
+            )
+            _ = try? store.applyDraft(
+                round1, generatedBy: "verify", sources: ["A.java", "B.java"], refresh: false
+            )
+            store.reloadNow()
+            round1.action = .update
+            round1.target = "震荡自检临时条目"
+            round1.body = "第二轮：只有 B 待处理"
+            let merged = try? store.applyDraft(
+                round1, generatedBy: "verify", sources: ["B.java", "C.java"], refresh: false
+            )
+            let expected = ["A.java", "B.java", "C.java"]
+            print("[verify][wiki] 增量合并：\(merged?.sources == expected ? "通过（A+B+C）" : "失败（\(merged?.sources ?? [])）")")
+            if let merged {
+                try? FileManager.default.removeItem(at: merged.fileURL)
+                store.reloadNow()
+            }
         }
 
         // 建档归属自检：如果现在跑一次「整个仓库建档」，每个模块能不能拿到域？

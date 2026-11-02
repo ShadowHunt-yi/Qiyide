@@ -638,7 +638,12 @@ final class WikiStore: ObservableObject {
                     updated.relations = draft.relations
                 }
                 if !sources.isEmpty {
-                    updated.sources = sources
+                    // 合并而不是覆盖。
+                    //
+                    // 一轮建档只会带上「本次待处理的文件」，直接覆盖会把上一轮
+                    // 已建档的文件从条目里摘掉；那些文件随即变回「没有条目引用」，
+                    // 下一轮又被当成待处理 → 同一个模块反复重写、永远跑不完。
+                    updated.sources = Array(Set(updated.sources).union(sources)).sorted()
                 }
             }
             updated.status = .draft
