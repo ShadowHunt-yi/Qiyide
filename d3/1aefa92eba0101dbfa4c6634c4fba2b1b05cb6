@@ -1,0 +1,22 @@
+CodeEdit/CodeEditApp.swift
+  h_6984196a933a03 37-38
+CodeEdit/Features/AIReview/Client/AINarrativeProvider.swift
+  h_6984196a933a03 144-167,189,247,453
+CodeEdit/Features/Wiki/Service/WikiCurationRunner.swift
+  h_6984196a933a03 339-343,400-403
+CodeEdit/Features/Wiki/Service/WikiCurationVerification.swift
+  h_6984196a933a03 1-203
+CodeEdit/Features/Wiki/Service/WikiModelClient.swift
+  h_6984196a933a03 235-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "d31aefa92eba0101dbfa4c6634c4fba2b1b05cb6",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
