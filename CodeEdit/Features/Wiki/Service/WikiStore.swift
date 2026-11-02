@@ -7,6 +7,11 @@
 //  索引全部在内存里重建（百级条目量级，一次扫描是毫秒级），
 //  不引入数据库——知识条目本来就该是能用 git 管理和 review 的纯文本。
 //
+//  两条写入路径，不要混用：
+//  - `reload()`：重扫磁盘。只在「首次载入」和「外部改动了文件」时用，异步。
+//  - `applyChanges(updated:removed:)`：内存增量。写入方手里已经有最新内容，
+//    没必要再从磁盘读回来。
+//
 
 import Combine
 import Foundation
@@ -18,6 +23,8 @@ final class WikiStore: ObservableObject {
     @Published private(set) var graph: WikiGraph = .empty
     @Published private(set) var errorMessage: String?
     @Published private(set) var isLoaded = false
+    /// 正在后台重扫。按钮用它显示进度，也用来挡掉重复点击。
+    @Published private(set) var isReloading = false
     /// 结构层：域划分与域间依赖。独立于条目，不会因为条目增删而失效。
     @Published private(set) var architecture = WikiArchitecture.empty
 
@@ -41,16 +48,36 @@ final class WikiStore: ObservableObject {
     /// 左栏按域分组、详情页列「这个域有哪些知识」都走这张表；
     /// 没有它就只能每次全库扫一遍 `entry.domains`，域一多就是 O(域×条目)。
     private var entriesByDomain: [String: [String]] = [:]
-    /// 检索用的预小写副本：标题、标签、正文各一份。
+    /// 检索用的预小写副本：标题、标签、正文各一份。按 id 存，
+    /// 这样改一条条目只需要重算它自己那一行。
     private struct SearchRow {
         let id: String
         let title: String
         let tags: [String]
         let body: String
     }
-    private var searchRows: [SearchRow] = []
+    private var searchRows: [String: SearchRow] = [:]
+    /// 条目 id → 正文里的 `[[链接]]`。
+    ///
+    /// 正则扫全文是「重建索引」和「重建图谱」共同的大头：两步都要遍历每条正文，
+    /// 而单条保存时真正变的只有一条。记忆化之后，改一条条目从「重扫 240 篇正文 × 2 遍」
+    /// 降到「扫 1 篇」。条目被改动或删除时对应项在 `applyChanges` 里失效。
+    private var bodyLinkCache: [String: [String]] = [:]
+
+    /// 参与建图的字段。只有这些变了，节点与边才需要重算。
+    ///
+    /// `domains` / `sources` / `status` 都不在其中：改域归属、确认草稿
+    /// 不会让任何一条边出现或消失，也没必要重建四个邻接索引。
+    private struct GraphInput: Equatable {
+        var title: String
+        var relations: [WikiRelation]
+        var links: [String]
+    }
+    private var graphInputs: [String: GraphInput] = [:]
     /// 布局代数号：后台算完的旧结果不能覆盖新数据。
     private var layoutGeneration: Int = 0
+    /// 扫描代数号：两次重扫并发时，先发后到的那次结果必须丢掉。
+    private var reloadGeneration: Int = 0
 
     init(root: URL) {
         self.root = root
@@ -62,20 +89,22 @@ final class WikiStore: ObservableObject {
 
     // MARK: 加载
 
-    func reload() {
-        let fileManager = FileManager.default
-        errorMessage = nil
+    /// 扫描结果。为的是把「磁盘上发生了什么」和「内存怎么更新」分开：
+    /// 前者可以在后台线程做，后者必须在主线程做。
+    private enum ScanOutcome: Sendable {
+        case missingDirectory
+        case failed(String)
+        case success([WikiEntry])
+    }
 
+    /// 后台扫描：列目录 → 读文件 → 解析 → 按更新时间排序。
+    ///
+    /// 全是纯 I/O 与纯函数，不碰任何实例状态，所以能安全地放在 detached task 里。
+    /// 240 条约 245ms，留在主线程上就是开窗时的一次可见卡顿。
+    nonisolated private static func scan(directory: URL) -> ScanOutcome {
+        let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: directory.path) else {
-            entries = []
-            graph = .empty
-            titleIndex = [:]
-            backlinkIndex = [:]
-            entriesByID = [:]
-            entriesByDomain = [:]
-            searchRows = []
-            isLoaded = true
-            return
+            return .missingDirectory
         }
 
         let urls: [URL]
@@ -86,43 +115,110 @@ final class WikiStore: ObservableObject {
                 options: [.skipsHiddenFiles]
             )
         } catch {
-            errorMessage = "读取知识库失败：\(error.localizedDescription)"
-            return
+            return .failed("读取知识库失败：\(error.localizedDescription)")
         }
 
         var parsed: [WikiEntry] = []
+        parsed.reserveCapacity(urls.count)
         for url in urls where url.pathExtension.lowercased() == "md" {
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             parsed.append(WikiEntry.parse(text: text, fileURL: url))
         }
-
-        entries = parsed.sorted { $0.updatedAt > $1.updatedAt }
-        rebuildIndexes()
-        rebuildGraph()
-        architecture = WikiArchitecture.load(root: root)
-        contentRevision &+= 1
-        isLoaded = true
+        return .success(parsed.sorted { $0.updatedAt > $1.updatedAt })
     }
 
-    private func rebuildIndexes() {
+    /// 重新扫描磁盘上的知识库。
+    ///
+    /// 只在两种情况下需要：首次载入，以及「文件被本次写入之外的东西改了」
+    /// （外部编辑器、git 切分支、架构构建器）。自己写完就知道内容是什么，
+    /// 走 `applyChanges` 即可——那里不读磁盘。
+    func reload() async {
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
+        isReloading = true
+
+        let directory = self.directory
+        let outcome = await Task.detached(priority: .userInitiated) {
+            // 显式写类型名：`Self.` 在 detached 闭包里会被当成捕获实例。
+            WikiStore.scan(directory: directory)
+        }.value
+
+        // 期间又发起了一次扫描：这次结果已过期，直接丢弃。
+        // 不判这个，先发后到的旧快照会盖掉新数据。
+        guard generation == reloadGeneration else { return }
+        isReloading = false
+        apply(outcome)
+    }
+
+    /// 同步重扫。**只给没有视图生命周期的调用方**：离屏渲染、验收脚本、
+    /// 以及 `init(autoLoad:)`。界面路径一律用 `await reload()`。
+    func reloadNow() {
+        reloadGeneration &+= 1
+        apply(Self.scan(directory: directory))
+    }
+
+    /// 把扫描结果装进内存。必须在主线程。
+    private func apply(_ outcome: ScanOutcome) {
+        switch outcome {
+        case .missingDirectory:
+            errorMessage = nil
+            entries = []
+            graph = .empty
+            titleIndex = [:]
+            backlinkIndex = [:]
+            entriesByID = [:]
+            entriesByDomain = [:]
+            searchRows = [:]
+            bodyLinkCache = [:]
+            architecture = .empty
+            isLoaded = true
+
+        case .failed(let message):
+            // 目录读不出来时保留旧数据：临时 I/O 错误不该让整个知识库变空。
+            errorMessage = message
+
+        case .success(let scanned):
+            errorMessage = nil
+            entries = scanned
+            // 全量重扫：正文可能被外部改过，所有派生缓存作废。
+            searchRows = [:]
+            bodyLinkCache = [:]
+            graphInputs = [:]
+            rebuildIndexes()
+            rebuildGraph()
+            architecture = WikiArchitecture.load(root: root)
+            contentRevision &+= 1
+            isLoaded = true
+        }
+    }
+
+    /// 重建派生索引。
+    ///
+    /// `refreshing` 为 nil 表示全量（重扫磁盘后）；否则只重算这些条目的
+    /// 检索行与正文链接——改一条条目时，其余 239 篇正文不可能变。
+    private func rebuildIndexes(refreshing ids: Set<String>? = nil) {
         titleIndex = [:]
         entriesByID = [:]
         entriesByDomain = [:]
         entriesByID.reserveCapacity(entries.count)
-        searchRows = []
-        searchRows.reserveCapacity(entries.count)
         for entry in entries {
             titleIndex[entry.normalizedTitle] = entry.id
             entriesByID[entry.id] = entry
             for domain in entry.domains {
                 entriesByDomain[domain, default: []].append(entry.id)
             }
-            searchRows.append(SearchRow(
+            // 标题/标签/正文的小写副本是这个方法最贵的一步（要复制全部正文），
+            // 没变的条目不能重算。
+            guard ids == nil || ids?.contains(entry.id) == true else { continue }
+            searchRows[entry.id] = SearchRow(
                 id: entry.id,
                 title: entry.title.lowercased(),
                 tags: entry.tags.map { $0.lowercased() },
                 body: entry.body.lowercased()
-            ))
+            )
+        }
+        if searchRows.count != entriesByID.count {
+            searchRows = searchRows.filter { entriesByID[$0.key] != nil }
         }
         backlinkIndex = [:]
         for entry in entries {
@@ -159,7 +255,15 @@ final class WikiStore: ObservableObject {
 
     /// 显式关系在前，正文提及在后。
     private func outgoingLinks(of entry: WikiEntry) -> [String] {
-        entry.relations.map(\.target) + bodyLinks(of: entry)
+        entry.relations.map(\.target) + cachedBodyLinks(of: entry)
+    }
+
+    /// 带记忆化的 `bodyLinks`。
+    private func cachedBodyLinks(of entry: WikiEntry) -> [String] {
+        if let cached = bodyLinkCache[entry.id] { return cached }
+        let links = bodyLinks(of: entry)
+        bodyLinkCache[entry.id] = links
+        return links
     }
 
     private func rebuildGraph() {
@@ -202,7 +306,7 @@ final class WikiStore: ObservableObject {
             explicitDirected.insert("\(edge.to)->\(edge.from)")
         }
         for entry in entries {
-            for target in bodyLinks(of: entry) {
+            for target in cachedBodyLinks(of: entry) {
                 guard let targetID = titleIndex[WikiEntry.normalize(target)],
                       targetID != entry.id else { continue }
                 let key = "\(entry.id)->\(targetID)"
@@ -240,6 +344,18 @@ final class WikiStore: ObservableObject {
         }
 
         graph = WikiGraph(nodes: nodes, edges: edges)
+
+        // 记下这次建图用的输入，下次保存时据此判断「结构到底变没变」。
+        var inputs: [String: GraphInput] = [:]
+        inputs.reserveCapacity(entries.count)
+        for entry in entries {
+            inputs[entry.id] = GraphInput(
+                title: entry.title,
+                relations: entry.relations,
+                links: cachedBodyLinks(of: entry)
+            )
+        }
+        graphInputs = inputs
 
         layoutGeneration &+= 1
         let generation = layoutGeneration
@@ -319,12 +435,15 @@ final class WikiStore: ObservableObject {
 
         var scored: [(entry: WikiEntry, score: Int)] = []
         scored.reserveCapacity(16)
-        for row in searchRows {
+        // 按 `entries` 的顺序遍历（更新时间降序），同分时顺序才是稳定的——
+        // 直接遍历字典每次结果顺序都不一样。
+        for entry in entries {
+            guard let row = searchRows[entry.id] else { continue }
             var score = 0
             if row.title.contains(keyword) { score += 6 }
             if row.tags.contains(where: { $0.contains(keyword) }) { score += 3 }
             if row.body.contains(keyword) { score += 1 }
-            guard score > 0, let entry = entriesByID[row.id] else { continue }
+            guard score > 0 else { continue }
             scored.append((entry, score))
         }
         return scored.sorted { $0.score > $1.score }.map(\.entry)
@@ -362,7 +481,8 @@ final class WikiStore: ObservableObject {
         )
         entry.updatedAt = Date()
         try write(entry)
-        reload()
+        // 刚写进去的内容就在手上，不必再扫一遍磁盘（旧实现是 create → reload）。
+        applyChanges(updated: [entry], removed: [])
         return self.entry(id: id) ?? entry
     }
 
@@ -373,23 +493,88 @@ final class WikiStore: ObservableObject {
         try write(updated)
         // 增量更新，不重读磁盘。
         //
-        // `reload()` 要把 240 个 md 全部重读重解析（实测 225ms），而 save 的入参
-        // 本来就是最新内容——再从磁盘读回来是纯浪费。批量写仍走 `save([...])`，
-        // 那里最后一次 reload 更简单可靠，而且批量本来就是「一次性动作」。
-        upsert(updated)
+        // `reload()` 要把条目全部重读重解析（240 条实测 245ms），而 save 的入参
+        // 本来就是最新内容——再从磁盘读回来是纯浪费。
+        applyChanges(updated: [updated], removed: [])
     }
 
-    /// 把一条条目并入内存索引并重建派生数据（不再读文件）。
-    private func upsert(_ entry: WikiEntry) {
-        if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-            entries[index] = entry
-        } else {
-            entries.append(entry)
+    /// 把一批改动并入内存索引并重建派生数据（不读文件）。
+    ///
+    /// 这是所有写入的唯一收口：单条保存、批量保存、批量确认、批量删除都走它。
+    /// 索引与图谱只重建一次，条目再多也只有一轮。
+    private func applyChanges(updated: [WikiEntry], removed: Set<String>) {
+        guard !updated.isEmpty || !removed.isEmpty else { return }
+
+        if !removed.isEmpty {
+            entries.removeAll { removed.contains($0.id) }
+            for id in removed {
+                bodyLinkCache[id] = nil
+                searchRows[id] = nil
+            }
         }
-        entries.sort { $0.updatedAt > $1.updatedAt }
-        rebuildIndexes()
-        rebuildGraph()
+
+        var touched: Set<String> = []
+        touched.reserveCapacity(updated.count)
+        if !updated.isEmpty {
+            var positions: [String: Int] = [:]
+            positions.reserveCapacity(entries.count)
+            for (index, entry) in entries.enumerated() { positions[entry.id] = index }
+            for entry in updated {
+                if let index = positions[entry.id] {
+                    entries[index] = entry
+                } else {
+                    positions[entry.id] = entries.count
+                    entries.append(entry)
+                }
+                // 正文可能变了，缓存的链接与检索行都要作废。
+                bodyLinkCache[entry.id] = nil
+                touched.insert(entry.id)
+            }
+            entries.sort { $0.updatedAt > $1.updatedAt }
+        }
+
+        // 先判结构变没变，再决定重建到哪一层。
+        // 「确认草稿」「改域归属」这类保存不动任何一条边，重建图谱纯属白烧 CPU。
+        let structural = isStructuralChange(updated: updated, removed: removed)
+        rebuildIndexes(refreshing: touched)
+        if structural {
+            rebuildGraph()
+        } else {
+            refreshGraphNodes(updated)
+        }
         contentRevision &+= 1
+    }
+
+    /// 这批改动会不会改变图的结构（节点集合、边集合）。
+    ///
+    /// 判据是「建图输入的指纹」：标题（决定能否被 `[[链接]]` 指到）、
+    /// 显式关系、正文链接。三者都没变，图就是同一张图。
+    private func isStructuralChange(updated: [WikiEntry], removed: Set<String>) -> Bool {
+        guard removed.isEmpty else { return true }
+        guard !updated.isEmpty else { return false }
+        for entry in updated {
+            guard let previous = graphInputs[entry.id] else { return true }
+            let current = GraphInput(
+                title: entry.title,
+                relations: entry.relations,
+                links: cachedBodyLinks(of: entry)
+            )
+            guard current == previous else { return true }
+        }
+        return false
+    }
+
+    /// 结构没变时，只把节点自身的展示字段刷新一遍（草稿标记）。
+    ///
+    /// 比起重建整张图，这里只改 `nodes[i]` 与索引字典里的一项，不碰邻接表。
+    private func refreshGraphNodes(_ updated: [WikiEntry]) {
+        var changed: [WikiNode] = []
+        for entry in updated {
+            guard var node = graph.node(entry.id), node.isDraft != entry.isDraft else { continue }
+            node.isDraft = entry.isDraft
+            changed.append(node)
+        }
+        graph.updateNodes(changed)
     }
 
     /// 只准备条目对象（分配 id 与文件路径），**不写盘也不重扫**。
@@ -480,72 +665,75 @@ final class WikiStore: ObservableObject {
         )
         try write(entry)
         if refresh {
-            reload()
-            return self.entry(id: id) ?? entry
+            applyChanges(updated: [entry], removed: [])
         }
         return entry
     }
 
     // MARK: 批量
 
-    /// 批量保存：逐个写文件，最后只 reload 一次。
+    /// 批量保存：逐个写文件，最后并进内存一次。
     ///
-    /// 收尾补边时会对上百个条目改关系，逐条 `save` 等于上百次全量重扫 + 布局。
+    /// 收尾补边时会对上百个条目改关系。旧实现是「写完后 reload 一次」——
+    /// 一次全量重扫看似省事，但要把刚写完的内容再从磁盘读回来；
+    /// 这里直接把入参并进索引，索引与图谱也只重建一次。
     func save(_ entries: [WikiEntry]) throws {
         guard !entries.isEmpty else { return }
         try ensureDirectory()
+        var written: [WikiEntry] = []
+        written.reserveCapacity(entries.count)
         for entry in entries {
             var updated = entry
             updated.updatedAt = Date()
             try write(updated)
+            written.append(updated)
         }
-        reload()
+        applyChanges(updated: written, removed: [])
     }
 
     /// 批量确认。
     ///
-    /// 逐个写文件、最后只 reload 一次：单条 `save` 每次都做全量扫描，
-    /// 一百条草稿就是一百次解析，界面会明显卡住。
+    /// 逐个写文件、最后只更新一次内存：旧实现最后 reload，一百条草稿要重读重解析一百次。
     @discardableResult
     func confirm(ids: [String]) -> Int {
-        var changed = 0
+        var updated: [WikiEntry] = []
         for id in ids {
             guard let entry = entry(id: id), entry.isDraft else { continue }
-            var updated = entry
-            updated.status = .confirmed
-            updated.updatedAt = Date()
-            if (try? write(updated)) != nil { changed += 1 }
+            var copy = entry
+            copy.status = .confirmed
+            copy.updatedAt = Date()
+            if (try? write(copy)) != nil { updated.append(copy) }
         }
-        if changed > 0 { reload() }
-        return changed
+        applyChanges(updated: updated, removed: [])
+        return updated.count
     }
 
     /// 批量丢弃草稿：走废纸篓，可恢复。已确认的条目不动。
     @discardableResult
     func discardDrafts(ids: [String]) -> Int {
-        var changed = 0
+        var removed: Set<String> = []
         for id in ids {
             guard let entry = entry(id: id), entry.isDraft else { continue }
             if (try? FileManager.default.trashItem(at: entry.fileURL, resultingItemURL: nil)) != nil {
-                changed += 1
+                removed.insert(id)
             }
         }
-        if changed > 0 { reload() }
-        return changed
+        applyChanges(updated: [], removed: removed)
+        return removed.count
     }
 
     /// 批量删除：不限草稿，全部走废纸篓。
     @discardableResult
     func delete(ids: [String]) -> Int {
-        var changed = 0
+        var removed: Set<String> = []
         for id in ids {
             guard let entry = entry(id: id) else { continue }
             if (try? FileManager.default.trashItem(at: entry.fileURL, resultingItemURL: nil)) != nil {
-                changed += 1
+                removed.insert(id)
             }
         }
-        if changed > 0 { reload() }
-        return changed
+        applyChanges(updated: [], removed: removed)
+        return removed.count
     }
 
     /// 人确认草稿：转入 confirmed，此后才会被当作可信知识。
@@ -566,10 +754,14 @@ final class WikiStore: ObservableObject {
     }
 
     func delete(_ entry: WikiEntry) throws {
-        guard FileManager.default.fileExists(atPath: entry.fileURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: entry.fileURL.path) else {
+            // 文件已经不在了（被外部删了）：内存里也不该留着它。
+            applyChanges(updated: [], removed: [entry.id])
+            return
+        }
         // 走废纸篓，知识不该因为一次误点就永久消失。
         try FileManager.default.trashItem(at: entry.fileURL, resultingItemURL: nil)
-        reload()
+        applyChanges(updated: [], removed: [entry.id])
     }
 
     /// 人写过的「补充」段落：重复建档替换正文时必须保留。

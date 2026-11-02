@@ -159,7 +159,7 @@ enum DomainVerification {
 
         // 2) 真实知识库上的归属分布。
         let store = WikiStore(root: root)
-        store.reload()
+        store.reloadNow()
         guard !store.entries.isEmpty else {
             log("回填报告：知识库为空（\(root.appending(path: ".qiyide/wiki").path)）")
             return

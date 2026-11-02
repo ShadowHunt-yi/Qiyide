@@ -104,6 +104,28 @@ struct WikiGraph {
     func edges(touching id: String) -> [WikiEdge] {
         (edgeIndexesByNode[id] ?? []).map { edges[$0] }
     }
+
+    /// 原地换掉一批节点的展示字段（标题、草稿标记…），不动边与邻接表。
+    ///
+    /// 存在的理由：确认草稿、改域归属都不会改变图的结构，
+    /// 却会重建一次「节点数组 + 四个索引字典」（240 节点实测 17ms）。
+    /// 只有节点自身属性变了的时候，没必要付这份钱。
+    ///
+    /// 收一批而不是逐个改：`graph` 是 `@Published`，逐条改会触发 N 次视图失效，
+    /// 批量确认一百条草稿就是一百次重绘。
+    mutating func updateNodes(_ changed: [WikiNode]) {
+        guard !changed.isEmpty else { return }
+        var updated = nodes
+        var touched = false
+        for node in changed {
+            guard let index = indexByID[node.id] else { continue }
+            updated[index] = node
+            nodesByID[node.id] = node
+            touched = true
+        }
+        guard touched else { return }
+        nodes = updated
+    }
 }
 
 // MARK: - 布局

@@ -53,7 +53,7 @@ enum WikiWindowVerification {
         // 渲染出来是给人看排版的，数字给的是「逻辑对不对、快不快」。
         var clock = Date()
         let store = WikiStore(root: root)
-        store.reload()
+        store.reloadNow()
         let reloadMS = Date().timeIntervalSince(clock) * 1000
 
         clock = Date()
@@ -96,6 +96,17 @@ enum WikiWindowVerification {
                 format: "[verify][wiki] 单条保存 %.1fms（增量，不重读磁盘）",
                 Date().timeIntervalSince(start) * 1000
             ))
+            // 增量更新的正确性判据：写完之后，内存里的状态必须和「重扫磁盘」完全一致。
+            // 旧实现每次保存都 reload，天然一致；改成增量之后这条不变量要显式守住。
+            checkConsistency(store, label: "保存")
+
+            // 确认草稿走的是「结构没变」的那条路：只翻节点标记，不重建邻接表。
+            // 这是新增的分支，必须单独验一次。
+            if let draft = store.drafts.first {
+                let confirmed = store.confirm(ids: [draft.id])
+                print("[verify][wiki] 批量确认：\(confirmed) 条")
+                checkConsistency(store, label: "确认草稿")
+            }
         }
 
         let summary = report.groups.map { "\($0.kind.title) \($0.issues.count)" }
@@ -144,6 +155,51 @@ enum WikiWindowVerification {
             }
             window.orderOut(nil)
             exit(0)
+        }
+    }
+
+    /// 对照检查：增量更新后的内存状态 vs 重扫磁盘后的状态。
+    ///
+    /// 不一致就说明「内存里有一份磁盘上没有的东西」——这类漂移在增量路径里
+    /// 不会自己暴露，只会在某次重启后表现为「我明明改过」。
+    @MainActor
+    private static func checkConsistency(_ store: WikiStore, label: String) {
+        let incremental = snapshot(store)
+        let incrementalEdges = store.graph.edges.count
+        store.reloadNow()
+        let reloaded = snapshot(store)
+        let reloadedEdges = store.graph.edges.count
+        guard incremental != reloaded || incrementalEdges != reloadedEdges else {
+            print("[verify][wiki] \(label) 增量/全量一致性：通过（\(reloaded.count) 条 · \(reloadedEdges) 边）")
+            return
+        }
+        print("[verify][wiki] \(label) 增量/全量一致性：失败（边 \(incrementalEdges) vs \(reloadedEdges)）")
+        for item in Set(incremental).subtracting(reloaded).prefix(5) {
+            print("[verify][wiki]   仅增量：\(item)")
+        }
+        for item in Set(reloaded).subtracting(incremental).prefix(5) {
+            print("[verify][wiki]   仅全量：\(item)")
+        }
+    }
+
+    /// 「增量 vs 全量」对照用的规范化快照。
+    ///
+    /// 刻意不含 `updatedAt`：ISO8601 序列化只到秒，内存里是完整精度，
+    /// 拿时间戳比对必然不等，会淹没真正的问题。
+    @MainActor
+    private static func snapshot(_ store: WikiStore) -> [String] {
+        store.entries.map { entry in
+            [
+                entry.id,
+                entry.title,
+                entry.type.rawValue,
+                entry.status.rawValue,
+                entry.domains.joined(separator: ","),
+                entry.tags.joined(separator: ","),
+                entry.sources.joined(separator: ","),
+                entry.relations.map { "\($0.kind):\($0.target)" }.joined(separator: ";"),
+                String(entry.body.count)
+            ].joined(separator: "|")
         }
     }
 }

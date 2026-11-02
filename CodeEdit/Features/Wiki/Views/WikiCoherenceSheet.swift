@@ -177,7 +177,10 @@ struct WikiCoherenceSheet: View {
     // MARK: 动作
 
     private func recompute() {
-        report = WikiCoherence.check(root: root, graph: graph, store: store)
+        // 和主窗口同一套：取数在主线程，git 与文件检查在后台。
+        Task {
+            report = await WikiCoherence.checkAsync(root: root, graph: graph, store: store)
+        }
     }
 
     private func clearDangling() {

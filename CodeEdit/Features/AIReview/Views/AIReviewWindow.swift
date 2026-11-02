@@ -88,7 +88,7 @@ struct AIReviewView: View {
         .frame(minWidth: 860, minHeight: 520)
         .background(Color(nsColor: .textBackgroundColor))
         .task {
-            if !wiki.isLoaded { wiki.reload() }
+            if !wiki.isLoaded { await wiki.reload() }
             if service.phase == .idle {
                 await service.load(limit: limit)
             }

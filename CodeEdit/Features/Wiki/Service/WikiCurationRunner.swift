@@ -508,7 +508,7 @@ final class WikiCurationRunner: ObservableObject {
             }
             if written > 0 {
                 // 一次性把内存与图谱更新到位。
-                store.reload()
+                await store.reload()
             }
         }
 

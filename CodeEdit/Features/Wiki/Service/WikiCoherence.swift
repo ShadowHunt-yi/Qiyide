@@ -87,15 +87,71 @@ enum WikiCoherence {
     /// 单条「过期关联」最多报多少条。文件批量改名时可能几千条，全列没有意义。
     private static let staleLimit = 40
 
+    /// 检查所需的输入快照。
+    ///
+    /// 为什么要有这一层：体检里有两类开销，一类是遍历条目（主线程，微秒级），
+    /// 一类是 `git rev-parse` 加几千次 `fileExists`（几十毫秒，纯 I/O）。
+    /// 前者必须在主线程取，后者不该占着主线程——分开之后，后者才能挪到后台。
+    struct Snapshot: Sendable {
+
+        struct Entry: Sendable {
+            let id: String
+            let displayTitle: String
+            let domains: [String]
+            let sources: [String]
+        }
+
+        struct Domain: Sendable {
+            let id: String
+            let displayTitle: String
+            let classCount: Int
+            let entryCount: Int
+        }
+
+        var entries: [Entry] = []
+        var domains: [Domain] = []
+        /// 「未归类」摘要只需要前几条标题，不必把整串搬过来。
+        var unassignedTitles: [String] = []
+        var unassignedCount: Int = 0
+        var hasDomainTags: Bool = false
+    }
+
+    /// 从内存取数。必须是主线程——它读的是 store 的索引。
     @MainActor
-    static func check(root: URL, graph: MindGraph, store: WikiStore) -> CoherenceReport {
+    static func snapshot(graph: MindGraph, store: WikiStore) -> Snapshot {
+        var snapshot = Snapshot()
+        snapshot.entries = store.entries.map { entry in
+            Snapshot.Entry(
+                id: entry.id,
+                displayTitle: entry.displayTitle,
+                domains: entry.domains,
+                sources: entry.sources
+            )
+        }
+        snapshot.domains = graph.domains.map { domain in
+            Snapshot.Domain(
+                id: domain.id,
+                displayTitle: domain.displayTitle,
+                classCount: domain.classCount,
+                entryCount: store.entries(inDomain: domain.id).count
+            )
+        }
+        let orphans = store.unassignedEntries
+        snapshot.unassignedTitles = Array(orphans.prefix(3).map(\.displayTitle))
+        snapshot.unassignedCount = orphans.count
+        snapshot.hasDomainTags = store.hasDomainTags
+        return snapshot
+    }
+
+    /// 体检本体：只看快照和磁盘，不碰 store，因此可以放后台。
+    static func evaluate(_ snapshot: Snapshot, root: URL, baseCommit: String) -> CoherenceReport {
         var report = CoherenceReport()
         report.checkedAt = Date()
 
-        let domainIDs = Set(graph.nodes.filter { $0.kind == .domain }.map(\.id))
+        let domainIDs = Set(snapshot.domains.map(\.id))
 
         // 1) 悬空：条目指向的域已经不存在。
-        for entry in store.entries {
+        for entry in snapshot.entries {
             for domainID in entry.domains where !domainIDs.contains(domainID) {
                 report.issues.append(CoherenceReport.Issue(
                     kind: .dangling,
@@ -110,18 +166,18 @@ enum WikiCoherence {
         // 2) 空缺 / 未归类。
         // 一条都没打标时，不该报「8 个域全都空缺」——那只是没建立归属，
         // 一条「未归类」就说明了全部问题。
-        if !store.hasDomainTags {
-            if !store.entries.isEmpty {
+        if !snapshot.hasDomainTags {
+            if !snapshot.entries.isEmpty {
                 report.issues.append(CoherenceReport.Issue(
                     kind: .unassigned,
-                    headline: "\(store.entries.count) 条知识未标归属",
+                    headline: "\(snapshot.entries.count) 条知识未标归属",
                     detail: "用「域归属」按代码路径批量补写",
                     entryID: nil,
                     domainID: nil
                 ))
             }
         } else {
-            for domain in graph.domains where store.entries(inDomain: domain.id).isEmpty {
+            for domain in snapshot.domains where domain.entryCount == 0 {
                 report.issues.append(CoherenceReport.Issue(
                     kind: .gap,
                     headline: domain.displayTitle,
@@ -130,13 +186,12 @@ enum WikiCoherence {
                     domainID: domain.id
                 ))
             }
-            let orphans = store.unassignedEntries
-            if !orphans.isEmpty {
-                let sample = orphans.prefix(3).map(\.displayTitle).joined(separator: "、")
+            if snapshot.unassignedCount > 0 {
+                let sample = snapshot.unassignedTitles.joined(separator: "、")
                 report.issues.append(CoherenceReport.Issue(
                     kind: .unassigned,
-                    headline: "\(orphans.count) 条知识未归类",
-                    detail: orphans.count > 3 ? "\(sample) 等" : sample,
+                    headline: "\(snapshot.unassignedCount) 条知识未归类",
+                    detail: snapshot.unassignedCount > 3 ? "\(sample) 等" : sample,
                     entryID: nil,
                     domainID: nil
                 ))
@@ -149,7 +204,7 @@ enum WikiCoherence {
         // 拿去判存在必然误报。这里只检查带扩展名的路径——宁可漏报目录类 source。
         let manager = FileManager.default
         var stale = 0
-        outer: for entry in store.entries {
+        outer: for entry in snapshot.entries {
             for source in entry.sources {
                 guard (source as NSString).pathExtension.isEmpty == false else { continue }
                 guard !manager.fileExists(atPath: root.appending(path: source).path) else { continue }
@@ -167,20 +222,43 @@ enum WikiCoherence {
             }
         }
 
-        // 4) 基线落后：模型基于旧提交。
-        let head = WikiChangeSource.run(["rev-parse", "HEAD"], at: root)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !graph.baseCommit.isEmpty, !head.isEmpty, graph.baseCommit != head {
-            report.issues.append(CoherenceReport.Issue(
-                kind: .baseDrift,
-                headline: "模型基于 \(String(graph.baseCommit.prefix(7)))",
-                detail: "当前 HEAD \(String(head.prefix(7)))",
-                entryID: nil,
-                domainID: nil
-            ))
+        // 4) 基线落后：模型基于旧提交。git 只在真要判的时候跑一次。
+        if !baseCommit.isEmpty {
+            let head = baseCommitAtHEAD(root: root)
+            if !head.isEmpty, baseCommit != head {
+                report.issues.append(CoherenceReport.Issue(
+                    kind: .baseDrift,
+                    headline: "模型基于 \(String(baseCommit.prefix(7)))",
+                    detail: "当前 HEAD \(String(head.prefix(7)))",
+                    entryID: nil,
+                    domainID: nil
+                ))
+            }
         }
 
         return report
+    }
+
+    /// 当前 HEAD。不是 git 仓库时返回空串。
+    private static func baseCommitAtHEAD(root: URL) -> String {
+        WikiChangeSource.run(["rev-parse", "HEAD"], at: root)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    /// 同步体检。命令行走私、验收脚本用；界面走 `checkAsync`。
+    @MainActor
+    static func check(root: URL, graph: MindGraph, store: WikiStore) -> CoherenceReport {
+        evaluate(snapshot(graph: graph, store: store), root: root, baseCommit: graph.baseCommit)
+    }
+
+    /// 异步体检：取数在主线程（O(条目数)），git 与文件存在性检查在后台。
+    @MainActor
+    static func checkAsync(root: URL, graph: MindGraph, store: WikiStore) async -> CoherenceReport {
+        let snapshot = snapshot(graph: graph, store: store)
+        let baseCommit = graph.baseCommit
+        return await Task.detached(priority: .utility) {
+            evaluate(snapshot, root: root, baseCommit: baseCommit)
+        }.value
     }
 
     /// 清掉所有悬空归属。只改 `domains` 字段，正文与其他元数据不动。
