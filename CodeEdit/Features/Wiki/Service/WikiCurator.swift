@@ -27,6 +27,20 @@ struct WikiCurationInput {
     let signals: [String]
     /// 补丁原文，内部按配置截断。
     let diff: String
+    /// 本批改动所属的域。
+    ///
+    /// 由调用方按文件路径匹配得出（只有唯一确定时才给）。两个用途：
+    /// 一是写进条目的 `domains`，建档产出立刻带归属，不用事后回填；
+    /// 二是让模型知道「你在给哪个域写知识」——不给的话它写的往往是整系统概览。
+    var domain: DomainContext?
+
+    /// 域上下文。只带模型判断边界需要的信息，不搬整棵图。
+    struct DomainContext: Sendable, Equatable {
+        let id: String
+        let title: String
+        let packages: [String]
+        let classCount: Int
+    }
 }
 
 struct WikiDraft {
@@ -131,6 +145,8 @@ enum WikiCurator {
            否则返回 create。
         3. 正文用 2 到 5 句中文，写判断和理由，不写「本次提交」这类过程描述。
         4. 不确定的内容不要写，宁可少写一句。
+        5. 如果给出了「所属域」，正文聚焦这个域内部的判断，不要写成整个系统的介绍；
+           确实跨域时，在 tags 里写明涉及的其他域。
 
         JSON 结构：
         {"action":"create|update","target":"已有条目标题，create 时为空串",
@@ -150,6 +166,17 @@ enum WikiCurator {
         }
         if !input.signals.isEmpty {
             lines.append("命中信号：\(input.signals.joined(separator: "、"))")
+        }
+
+        // 域上下文。给模型一个边界，否则它会写「整个系统怎么运作」而不是
+        // 「这个域里该注意什么」。
+        if let domain = input.domain {
+            lines.append("")
+            lines.append("所属域：\(domain.title)（`\(domain.id)`，\(domain.classCount) 类）")
+            if !domain.packages.isEmpty {
+                lines.append("域内业务包：" + domain.packages.prefix(6).joined(separator: "、"))
+            }
+            lines.append("只写这一域内部的判断；跨域的约定在 tags 里注明涉及哪些域。")
         }
 
         if !existing.isEmpty {

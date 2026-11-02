@@ -446,15 +446,29 @@ final class WikiCurationRunner: ObservableObject {
         // 5. 理解联系（并发请求，主线程串行落盘）
         stage = .relate
         detail = "梳理 \(selected.count) 个模块…"
+        // 域模型在这里读一次。用途有两个：
+        // 一是给每个模块算出归属，条目一落盘就挂在域上（不必事后跑「域归属」回填）；
+        // 二是写进提示词，让模型知道自己在给哪个域写——否则它写的是整系统概览。
+        let domainGraph = DomainModelStore.lockedGraph(root: root)
+        if domainGraph.domains.isEmpty {
+            append("没有锁定领域模型，本次建档的条目不会带域归属")
+        }
+        var domainByModule: [String: WikiDomainBackfill.Hit] = [:]
         var relateJobs: [WikiRelateJob] = []
         for module in selected {
+            let hint = WikiDomainBackfill.domain(
+                forSources: module.files.map(\.path),
+                graph: domainGraph
+            )
+            if let hint { domainByModule[module.name] = hint }
             guard let relateJob = makeRelateJob(
                 module: module,
                 insights: resolved,
                 allModules: selected,
                 store: store,
                 knownModuleContext: job.knownModuleContext(excluding: module.name),
-                graph: graph
+                graph: graph,
+                domain: hint
             ) else { continue }
             relateJobs.append(relateJob)
         }
@@ -492,6 +506,7 @@ final class WikiCurationRunner: ObservableObject {
                         draft,
                         generatedBy: AINarrativeStore.shared.providerLabel,
                         sources: module.files.map(\.path),
+                        domainID: domainByModule[module.name]?.domainID,
                         // 关键：这一轮十几条写完后只刷新一次，
                         // 否则每条都触发力导向布局，主线程直接卡死。
                         refresh: false
@@ -573,10 +588,17 @@ final class WikiCurationRunner: ObservableObject {
         allModules: [RepoModule],
         store: WikiStore,
         knownModuleContext: String,
-        graph: WikiDependencyGraph
+        graph: WikiDependencyGraph,
+        domain: WikiDomainBackfill.Hit?
     ) -> WikiRelateJob? {
         var lines: [String] = []
         lines.append("模块：\(module.name)")
+        // 域上下文：告诉模型这个模块在哪个业务域里，职责就按那个域写。
+        // 没有域模型时整段不出现，提示词退化成原来的样子。
+        if let domain {
+            lines.append("所属域：\(domain.domainTitle)（`\(domain.domainID)`）")
+            lines.append("这个模块属于「\(domain.domainTitle)」域。职责与约定写该域内部的判断，不要写成整个系统的介绍。")
+        }
         lines.append("文件：")
         for file in module.files {
             let purpose = insights[file.path]?.purpose ?? "（未解析）"

@@ -151,10 +151,15 @@ enum WikiDomainBackfill {
     ///    兜底域（按一级包聚合出来的）永远不该抢走具体域已经认领的路径。
     /// 3. **不同 source 命中不同域 → 多义**。这才是真正的跨域条目。
     private static func resolve(entry: WikiEntry, profiles: [DomainProfile]) -> Resolution {
+        resolve(sources: entry.sources, profiles: profiles)
+    }
+
+    /// 一组代码路径归到哪个域。建档与回填共用同一套规则，避免两处判定不一致。
+    private static func resolve(sources: [String], profiles: [DomainProfile]) -> Resolution {
         // 先按 source 分组：一条 source 最多投出一个域。
         var winnerBySource: [String: Hit] = [:]
 
-        for source in entry.sources {
+        for source in sources {
             var best: (hit: Hit, index: Int)?
             for profile in profiles {
                 for key in profile.keys {
@@ -200,6 +205,23 @@ enum WikiDomainBackfill {
             return lhs.key.count > rhs.key.count
         }) else { return .none }
         return .several(first)
+    }
+
+    /// 给一组代码路径找域。**建档时用**：条目落盘就带归属，不必事后回填。
+    ///
+    /// 与回填完全同一套规则：只有「唯一确定」才返回，多义和无归属都返回 nil。
+    /// 多义不猜是有意的——一条写在两个域共同边界上的知识，塞进任一边都比留在
+    /// 「未归类」更糟，因为以后不会再有人回头看它。
+    ///
+    /// - Parameters:
+    ///   - sources: 仓库相对路径（可以是文件，也可以是包路径）。
+    ///   - graph: 已锁定的领域模型。
+    /// - Returns: 命中信息；域模型为空时返回 nil。
+    static func domain(forSources sources: [String], graph: MindGraph) -> Hit? {
+        let profiles = profiles(in: graph)
+        guard !profiles.isEmpty, !sources.isEmpty else { return nil }
+        guard case .one(let hit) = resolve(sources: sources, profiles: profiles) else { return nil }
+        return hit
     }
 
     /// 按报告写入。只补「唯一确定」的条目；多义与无归属一律不动。

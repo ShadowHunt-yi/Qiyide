@@ -130,6 +130,66 @@ enum WikiWindowVerification {
             for entry in missing.prefix(3) {
                 print("[verify][wiki]   搜不到：\(entry.title.prefix(40))")
             }
+
+            // 建档带域：applyDraft 收到 domainID 时必须写进 frontmatter，
+            // 否则「条目一落盘就挂在域上」只是一句注释。走一遍真实落盘再读回来。
+            let probeDraft = WikiDraft(
+                action: .create,
+                target: "",
+                title: "归属自检临时条目",
+                type: .module,
+                tags: ["自检"],
+                relations: [],
+                body: "验证 applyDraft 的 domainID 真的落盘。",
+                reason: "",
+                sources: ["自检/不存在的路径.java"]
+            )
+            let probeDomain = "domain:leftover:agent"
+            if let created = try? store.applyDraft(
+                probeDraft,
+                generatedBy: "verify",
+                sources: ["自检/不存在的路径.java"],
+                domainID: probeDomain,
+                refresh: false
+            ) {
+                let onDisk = try? String(contentsOf: created.fileURL, encoding: .utf8)
+                let wrote = onDisk?.contains("domains: \(probeDomain)") == true
+                let inMemory = created.domains == [probeDomain]
+                print("[verify][wiki] 建档带域：\(wrote && inMemory ? "通过" : "失败（磁盘 \(wrote) 内存 \(inMemory)）")")
+                try? FileManager.default.removeItem(at: created.fileURL)
+                store.reloadNow()
+            }
+        }
+
+        // 建档归属自检：如果现在跑一次「整个仓库建档」，每个模块能不能拿到域？
+        // 拿真实代码文件跑一遍路径判定，看覆盖率与落到哪些域——
+        // 规则错了这里会立刻显形（比如 suggest 的文件全落到 AI搭子）。
+        if !model.graph.domains.isEmpty {
+            var counts: [String: Int] = [:]
+            var unmatched = 0
+            var scanned = 0
+            if let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) {
+                for case let url as URL in enumerator {
+                    guard scanned < 5000 else { break }
+                    guard url.pathExtension == "java" else { continue }
+                    guard !url.path.contains("/target/"), !url.path.contains("/test/") else { continue }
+                    scanned += 1
+                    let relative = url.path.replacingOccurrences(of: root.path + "/", with: "")
+                    if let hit = WikiDomainBackfill.domain(forSources: [relative], graph: model.graph) {
+                        counts[hit.domainTitle, default: 0] += 1
+                    } else {
+                        unmatched += 1
+                    }
+                }
+            }
+            print("[verify][wiki] 建档归属自检：扫 \(scanned) 个 java，匹配 \(scanned - unmatched)，未匹配 \(unmatched)")
+            for (title, count) in counts.sorted(by: { $0.value > $1.value }) {
+                print("[verify][wiki]   \(title)：\(count)")
+            }
         }
 
         let summary = report.groups.map { "\($0.kind.title) \($0.issues.count)" }

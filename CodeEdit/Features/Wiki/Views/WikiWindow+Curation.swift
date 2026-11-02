@@ -29,10 +29,13 @@ extension WikiWindowView {
     }
 
     func curate(_ source: CurationSource) {
-        guard let input = curationInput(for: source) else {
+        guard var input = curationInput(for: source) else {
             curatorError = emptyReason(for: source)
             return
         }
+        // 域上下文：按本次改动的文件路径匹配。有了它，模型知道自己在给哪个域写，
+        // 产出的草稿也直接挂在域上——不用再跑一遍「域归属」。
+        input.domain = domainContext(for: input.files)
         guard AINarrativeStore.shared.isReady else {
             curatorError = AINarrativeStore.shared.blockedReason ?? "模型未配置"
             return
@@ -50,7 +53,8 @@ extension WikiWindowView {
                 let applied = try store.applyDraft(
                     draft,
                     generatedBy: label,
-                    sources: Array(input.files.prefix(8))
+                    sources: Array(input.files.prefix(8)),
+                    domainID: input.domain?.id
                 )
                 selection = applied.id
                 curatorMessage = draft.reason.isEmpty
@@ -61,6 +65,21 @@ extension WikiWindowView {
             }
             curating = false
         }
+    }
+
+    /// 给一批文件找域。只取「唯一确定」的结果——多义与无归属都返回 nil，
+    /// 和「域归属」回填完全同一套规则（见 `WikiDomainBackfill.domain(forSources:graph:)`）。
+    func domainContext(for files: [String]) -> WikiCurationInput.DomainContext? {
+        guard let hit = WikiDomainBackfill.domain(forSources: files, graph: domains.graph) else {
+            return nil
+        }
+        let node = domains.graph.node(hit.domainID)
+        return WikiCurationInput.DomainContext(
+            id: hit.domainID,
+            title: hit.domainTitle,
+            packages: node?.packages ?? [],
+            classCount: node?.classCount ?? 0
+        )
     }
 
     func curationInput(for source: CurationSource) -> WikiCurationInput? {

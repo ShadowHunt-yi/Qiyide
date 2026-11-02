@@ -605,7 +605,9 @@ final class WikiStore: ObservableObject {
     }
 
     /// 把 AI 生成的草稿落盘。永远是 draft，必须由人确认后才成为可信知识。
-    /// 落盘一份草稿。
+    ///
+    /// `domainID` 是建档时按代码路径匹配出的归属（见 `WikiDomainBackfill.domain(forSources:graph:)`）：
+    /// 有它，条目一落盘就挂在域上，域详情页当场有内容，不必再跑一遍「域归属」回填。
     ///
     /// `refresh` 为 false 时只写文件、不重建内存与图谱。
     /// 建档一轮会连续写十几条，每条都重算一次力导向布局会直接把主线程锁死
@@ -615,6 +617,7 @@ final class WikiStore: ObservableObject {
         _ draft: WikiDraft,
         generatedBy: String,
         sources: [String],
+        domainID: String? = nil,
         refresh: Bool = true
     ) throws -> WikiEntry {
         if draft.action == .update, let target = entry(titled: draft.target) {
@@ -641,6 +644,10 @@ final class WikiStore: ObservableObject {
             updated.status = .draft
             updated.generatedBy = generatedBy
             if updated.sources.isEmpty { updated.sources = sources }
+            // 只在「还没有归属」时补。人工改过的域不能被每次建档冲掉。
+            if updated.domains.isEmpty, let domainID {
+                updated.domains = [domainID]
+            }
             if refresh {
                 try save(updated)
                 return entry(id: target.id) ?? updated
@@ -659,6 +666,7 @@ final class WikiStore: ObservableObject {
             type: draft.type,
             tags: draft.tags,
             sources: sources,
+            domains: domainID.map { [$0] } ?? [],
             relations: draft.relations,
             body: draft.body,
             updatedAt: Date(),

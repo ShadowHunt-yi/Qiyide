@@ -56,6 +56,20 @@ final class DomainModelStore: ObservableObject {
 
     // MARK: 加载与保存
 
+    /// 只读加载锁定模型。
+    ///
+    /// 给「只想要一份图、不关心变化」的调用方用（建档、归属报告、验收脚本）。
+    /// 走 `init` 会造一个 `ObservableObject` 并挂上 `@Published`，对这种一次性读取
+    /// 是纯浪费；这里只解码、不订阅。
+    static func lockedGraph(root: URL) -> MindGraph {
+        guard let data = try? Data(contentsOf: LockedDomainModel.url(root: root)) else {
+            return .empty
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode(LockedDomainModel.self, from: data))?.graph ?? .empty
+    }
+
     private var lockedURL: URL { LockedDomainModel.url(root: root) }
 
     private func loadLockedIfPresent() {
