@@ -1,0 +1,30 @@
+.workbuddy/memory/2026-11-02.md
+  h_6984196a933a03 1-59
+CodeEdit/Features/Wiki/Models/WikiEntry.swift
+  h_6984196a933a03 81-89,138,161-163,185,202
+CodeEdit/Features/Wiki/Service/DomainVerification.swift
+  h_6984196a933a03 112-115,133-202
+CodeEdit/Features/Wiki/Service/WikiDomainBackfill.swift
+  h_6984196a933a03 1-274
+CodeEdit/Features/Wiki/Service/WikiDomainSeeding.swift
+  h_6984196a933a03 46-60,67,103-111
+CodeEdit/Features/Wiki/Service/WikiStore.swift
+  h_6984196a933a03 33-37,69,103,110-112,272-289
+CodeEdit/Features/Wiki/Views/DomainBackfillSheet.swift
+  h_6984196a933a03 1-221
+CodeEdit/Features/Wiki/Views/DomainModelWindow.swift
+  h_6984196a933a03 82-83,158-160,305-314
+CodeEdit/Features/Wiki/Views/WikiWindow.swift
+  h_6984196a933a03 635-656,867-872
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "f29182730949f532d525e5d00d9b3a5ac8494bf8",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
