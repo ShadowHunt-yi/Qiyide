@@ -1,0 +1,36 @@
+.workbuddy/memory/2026-11-02.md
+  h_6984196a933a03 100-140
+CodeEdit/Features/Wiki/Models/WikiEntry.swift
+  h_6984196a933a03 136-141,181,218
+CodeEdit/Features/Wiki/Service/WikiCoherence.swift
+  h_6984196a933a03 113
+CodeEdit/Features/Wiki/Service/WikiDomainSeeding.swift
+  h_6984196a933a03 42-45,68,75,80-84
+CodeEdit/Features/Wiki/Service/WikiStore.swift
+  h_6984196a933a03 24-29,103,136-143,148,304-311,374-416
+CodeEdit/Features/Wiki/Service/WikiWindowVerification.swift
+  h_6984196a933a03 52-54,57-59,61-100
+CodeEdit/Features/Wiki/Views/DomainBackfillSheet.swift
+  h_6984196a933a03 18-22,215
+CodeEdit/Features/Wiki/Views/WikiDomainDetailView.swift
+  h_6984196a933a03 2,5,7-12,17,19-23,25-27,30-38,40,44,46-53,56,60-65,67-68,72-80,83-84,86-97,102-109,111-113,115-118,122-124,126-134,137-141,149-170,175,177-214
+CodeEdit/Features/Wiki/Views/WikiEntryEditor.swift
+  h_6984196a933a03 1-184
+CodeEdit/Features/Wiki/Views/WikiSmallViews.swift
+  h_6984196a933a03 1-42
+CodeEdit/Features/Wiki/Views/WikiWindow.swift
+  h_6984196a933a03 69-70,163-165,175,182,296-306,527-532,708-711,716,760,786,845,849,860,866,884,1066,1079-1090,1104-1105,1107-1118,1120-1127,1129-1138,1140-1146,1148-1160,1162-1169,1171-1180,1265,1458,1460,1470,1480
+CodeEdit/Features/WindowCommands/WikiCommands.swift
+  h_6984196a933a03 19-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "f496f7849a79d92a87a5ef9d8e80fd1387943eb0",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
