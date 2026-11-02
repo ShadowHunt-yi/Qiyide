@@ -1,0 +1,26 @@
+CodeEdit/Features/Wiki/Service/DomainModelStore.swift
+  h_6984196a933a03 59-72
+CodeEdit/Features/Wiki/Service/WikiCurationRunner.swift
+  h_6984196a933a03 449-456,459-463,470-471,509,591-592,596-601
+CodeEdit/Features/Wiki/Service/WikiCurator.swift
+  h_6984196a933a03 30-43,148-149,171-181
+CodeEdit/Features/Wiki/Service/WikiDomainBackfill.swift
+  h_6984196a933a03 154-158,162,210-226
+CodeEdit/Features/Wiki/Service/WikiStore.swift
+  h_6984196a933a03 608-610,620,647-650,669
+CodeEdit/Features/Wiki/Service/WikiWindowVerification.swift
+  h_6984196a933a03 133-192
+CodeEdit/Features/Wiki/Views/WikiWindow+Curation.swift
+  h_6984196a933a03 32,36-38,56-57,70-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "64863e10c3a1f3da6a1570f32f43cf0c9142016c",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
