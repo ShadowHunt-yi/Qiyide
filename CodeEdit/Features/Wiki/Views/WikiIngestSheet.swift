@@ -34,7 +34,13 @@ struct WikiIngestSheet: View {
         }
         .padding(18)
         .frame(width: 560, height: 580)
-        .task { runner.preview(root: store.root) }
+        // 「已建档」要同时看缓存和知识库：光有缓存不算建过档。
+        .task {
+            runner.preview(
+                root: store.root,
+                curatedPaths: Set(store.entries.flatMap(\.sources))
+            )
+        }
     }
 
     // MARK: 头部

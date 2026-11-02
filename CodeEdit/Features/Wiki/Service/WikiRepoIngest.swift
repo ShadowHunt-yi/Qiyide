@@ -249,10 +249,16 @@ enum WikiRepoIngest {
     }
 
     /// 基于「文件结论缓存」的概览：比 mtime 判定更准，换模型后旧结论会自动失效。
+    ///
+    /// `curatedPaths`：知识库里被条目引用过的文件路径。缓存只说明「读过」，
+    /// 还要有条目引用才算「已建档」——否则条目被删/归档之后，缓存还留着，
+    /// 这些文件会被判为已建档而永远不再生成。
+    /// 传 nil 表示退回纯缓存口径（旧行为），只给不关心条目的调用方用。
     static func inventory(
         root: URL,
         insights: WikiInsightStore,
-        model: String
+        model: String,
+        curatedPaths: Set<String>? = nil
     ) -> (total: Int, fresh: Int) {
         let keys: [URLResourceKey] = [.isRegularFileKey]
         guard let enumerator = FileManager.default.enumerator(
@@ -272,9 +278,10 @@ enum WikiRepoIngest {
             guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey]),
                   values.isRegularFile == true else { continue }
             total += 1
-            if insights.insight(for: relativePath(of: url, root: root), url: url, model: model) != nil {
-                fresh += 1
-            }
+            let relative = relativePath(of: url, root: root)
+            guard insights.insight(for: relative, url: url, model: model) != nil else { continue }
+            guard curatedPaths?.contains(relative) ?? true else { continue }
+            fresh += 1
         }
         return (total, fresh)
     }

@@ -189,11 +189,20 @@ final class WikiCurationRunner: ObservableObject {
     }
 
     /// 打开面板时做一次轻量统计。
-    func preview(root: URL) {
+    ///
+    /// `curatedPaths` 必须由调用方从知识库取：只按缓存算「已建档」会把
+    /// 「条目已删除但缓存还在」的文件算成已完成，界面上就会出现
+    /// 「已建档 711、待处理 1940」而库里一条对应条目都没有。
+    func preview(root: URL, curatedPaths: Set<String>? = nil) {
         guard !isRunning else { return }
         let model = AINarrativeStore.shared.providerLabel
         let insights = WikiInsightStore.load(root: root)
-        let result = WikiRepoIngest.inventory(root: root, insights: insights, model: model)
+        let result = WikiRepoIngest.inventory(
+            root: root,
+            insights: insights,
+            model: model,
+            curatedPaths: curatedPaths
+        )
         totalCandidates = result.total
         alreadyProcessed = result.fresh
         self.root = root
@@ -331,8 +340,14 @@ final class WikiCurationRunner: ObservableObject {
         graphSummary = graph.summary
         append("依赖图：\(graph.summary)")
 
-        // 2. 用「文件结论缓存」判定待处理：文件没改且模型没换才算已建档。
+        // 2. 判定待处理。两个条件同时满足才算「已建档」：
+        //    ① 文件内容读过且没改（`insights` 缓存命中）——它只说明「不必重新理解」；
+        //    ② 知识库里还有条目引用这个文件（`sources` 含该路径）——才说明「真的建过档」。
+        //
+        // 只看 ① 是错的：条目被删除或归档之后缓存还在，这些文件会被永久跳过。
+        // 症状就是「已建档 711、待处理 1940」，而知识库里一条对应条目都没有。
         var insights = WikiInsightStore.load(root: root)
+        let curatedPaths = Set(store.entries.flatMap(\.sources))
         var pendingModules: [RepoModule] = []
         var pendingCount = 0
         var freshCount = 0
@@ -340,7 +355,8 @@ final class WikiCurationRunner: ObservableObject {
             var pending: [RepoFileCandidate] = []
             for file in module.files {
                 let url = root.appending(path: file.path)
-                if insights.insight(for: file.path, url: url, model: model) != nil {
+                let understood = insights.insight(for: file.path, url: url, model: model) != nil
+                if understood && curatedPaths.contains(file.path) {
                     freshCount += 1
                 } else {
                     pending.append(file)
