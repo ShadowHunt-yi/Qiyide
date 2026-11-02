@@ -1,0 +1,18 @@
+.workbuddy/memory/2026-11-02.md
+  h_6984196a933a03 147-207
+CodeEdit/Features/Wiki/Service/WikiStore.swift
+  h_6984196a933a03 567,570,574-575,577
+CodeEdit/Features/Wiki/Service/WikiWindowVerification.swift
+  h_6984196a933a03 110-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "485aaa5ea75a0c9d6b49b895f002dfbec127160b",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
