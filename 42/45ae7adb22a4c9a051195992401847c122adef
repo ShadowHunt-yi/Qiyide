@@ -1,0 +1,24 @@
+.workbuddy/memory/2026-11-02.md
+  h_6984196a933a03 54-85
+CodeEdit/CodeEditApp.swift
+  h_6984196a933a03 35-36
+CodeEdit/Features/Wiki/Models/WikiEntry.swift
+  h_6984196a933a03 115-118,123
+CodeEdit/Features/Wiki/Service/WikiWindowVerification.swift
+  h_6984196a933a03 1-91
+CodeEdit/Features/Wiki/Views/WikiWindow.swift
+  h_6984196a933a03 55-58,65-71,77-78,80,82,86,88,93,103-108,110-117,155-160,234-236,301,312-349,360-373,377-379,397-404,412-414,420-484,527-533,539-542,546-547,549,555-724,908-911,917,925-1080,1146-1153
+CodeEdit/Features/WindowCommands/WikiCommands.swift
+  h_6984196a933a03 19-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "4245ae7adb22a4c9a051195992401847c122adef",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
