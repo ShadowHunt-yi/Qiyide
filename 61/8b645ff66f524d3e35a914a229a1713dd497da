@@ -1,0 +1,20 @@
+CodeEdit/Features/Wiki/Service/WikiCurationRunner.swift
+  h_6984196a933a03 192-196,200-205,343-348,350,358-359
+CodeEdit/Features/Wiki/Service/WikiRepoIngest.swift
+  h_6984196a933a03 252-256,260-261,281-284
+CodeEdit/Features/Wiki/Service/WikiWindowVerification.swift
+  h_6984196a933a03 195-206
+CodeEdit/Features/Wiki/Views/WikiIngestSheet.swift
+  h_6984196a933a03 37-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "618b645ff66f524d3e35a914a229a1713dd497da",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
