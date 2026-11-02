@@ -30,6 +30,11 @@ final class WikiStore: ObservableObject {
     /// 条目 id → 条目。列表每行、详情栏、批量操作都要按 id 取，
     /// 用 `entries.first { $0.id == id }` 会退化成 O(n²)。
     private var entriesByID: [String: WikiEntry] = [:]
+    /// 域 id → 条目 id。
+    ///
+    /// 左栏按域分组、详情页列「这个域有哪些知识」都走这张表；
+    /// 没有它就只能每次全库扫一遍 `entry.domains`，域一多就是 O(域×条目)。
+    private var entriesByDomain: [String: [String]] = [:]
     /// 检索用的预小写副本：标题、标签、正文各一份。
     private struct SearchRow {
         let id: String
@@ -61,6 +66,7 @@ final class WikiStore: ObservableObject {
             titleIndex = [:]
             backlinkIndex = [:]
             entriesByID = [:]
+            entriesByDomain = [:]
             searchRows = []
             isLoaded = true
             return
@@ -94,12 +100,16 @@ final class WikiStore: ObservableObject {
     private func rebuildIndexes() {
         titleIndex = [:]
         entriesByID = [:]
+        entriesByDomain = [:]
         entriesByID.reserveCapacity(entries.count)
         searchRows = []
         searchRows.reserveCapacity(entries.count)
         for entry in entries {
             titleIndex[entry.normalizedTitle] = entry.id
             entriesByID[entry.id] = entry
+            for domain in entry.domains {
+                entriesByDomain[domain, default: []].append(entry.id)
+            }
             searchRows.append(SearchRow(
                 id: entry.id,
                 title: entry.title.lowercased(),
@@ -257,6 +267,24 @@ final class WikiStore: ObservableObject {
 
     func backlinks(of id: String) -> [WikiEntry] {
         (backlinkIndex[id] ?? []).compactMap { entry(id: $0) }
+    }
+
+    /// 某个域下的条目，顺序与列表一致（按更新时间降序）。
+    func entries(inDomain domainID: String) -> [WikiEntry] {
+        (entriesByDomain[domainID] ?? []).compactMap { entry(id: $0) }
+    }
+
+    /// 不属于任何域的条目。
+    ///
+    /// 合并后左栏必须单独给它们一段：否则 AI 随手记的、以及历史遗留的条目
+    /// 会既不在任何域下、又不会出现在任何分组里，等于凭空消失。
+    var unassignedEntries: [WikiEntry] {
+        entries.filter { $0.domains.isEmpty }
+    }
+
+    /// 条目里出现过的域 id。
+    var taggedDomainIDs: Set<String> {
+        Set(entriesByDomain.keys)
     }
 
     /// 简单打分检索：标题命中权重最高，其次标签，最后正文。

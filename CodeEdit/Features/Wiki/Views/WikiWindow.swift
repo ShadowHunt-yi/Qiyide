@@ -632,6 +632,28 @@ struct WikiWindowView: View {
                         }
                     }
 
+                    // 所属域：条目与领域模型的唯一连接点。
+                    //
+                    // 显示的是域 id 去掉前缀后的包路径，而不是域标题——
+                    // 标题可以随时改，包路径才是能对着代码核对的锚点。
+                    section("所属域") {
+                        if entry.domains.isEmpty {
+                            HStack(spacing: 5) {
+                                chip("未归类", color: .orange)
+                                Text("可在「领域建模 → 域归属」补写")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        } else {
+                            HStack(spacing: 4) {
+                                ForEach(entry.domains, id: \.self) { domain in
+                                    chip(Self.domainLabel(domain), color: .accentColor)
+                                        .help(domain)
+                                }
+                            }
+                        }
+                    }
+
                     if !entry.sources.isEmpty {
                         section("关联代码") {
                             VStack(alignment: .leading, spacing: 3) {
@@ -840,6 +862,12 @@ struct WikiWindowView: View {
                 .foregroundStyle(.tertiary)
             content()
         }
+    }
+
+    /// `domain:service/portrait` → `service/portrait`。
+    static func domainLabel(_ domainID: String) -> String {
+        let prefix = "domain:"
+        return domainID.hasPrefix(prefix) ? String(domainID.dropFirst(prefix.count)) : domainID
     }
 
     private func chip(_ text: String, color: Color) -> some View {

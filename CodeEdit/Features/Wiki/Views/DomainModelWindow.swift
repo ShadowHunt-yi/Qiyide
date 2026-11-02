@@ -79,6 +79,8 @@ struct DomainModelView: View {
     @State private var showCustomSpecSheet = false
     @State private var draftSpec = ViewSpec.custom(name: "")
     @State private var seedNotice: String?
+    /// 域归属报告面板。
+    @State private var showBackfill = false
     /// 投影结果缓存。投影要遍历全部节点并复制一份图，
     /// 不能每次 body 都算——选中、缩放、悬停都会重算 body。
     @State private var projectedGraph: MindGraph?
@@ -152,6 +154,9 @@ struct DomainModelView: View {
         }
         .sheet(isPresented: $showCustomSpecSheet) {
             customSpecSheet
+        }
+        .sheet(isPresented: $showBackfill) {
+            DomainBackfillSheet(root: store.root, graph: store.graph)
         }
     }
 
@@ -295,6 +300,16 @@ struct DomainModelView: View {
                 }
                 .controlSize(.small)
                 .help("按领域生成知识草稿；同名条目会被跳过，不覆盖人工内容")
+            }
+
+            if !store.graph.isEmpty {
+                Button {
+                    showBackfill = true
+                } label: {
+                    Label("域归属", systemImage: "link.badge.plus")
+                }
+                .controlSize(.small)
+                .help("检查已有知识条目属于哪个域，确认后再一次性补写")
             }
 
             Menu {

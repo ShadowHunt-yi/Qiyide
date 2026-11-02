@@ -43,14 +43,28 @@ enum WikiDomainSeeding {
             let title = domain.displayTitle
 
             // 已存在同名条目就跳过：人工改过的内容不能被重新生成覆盖。
-            if store.entry(titled: title) != nil {
-                result.skipped += 1
+            //
+            // 合并后要区分三种情况，不能一律「同名即跳过」：
+            // 标题是 `[[链接]]` 的解析键，两个域叫同一个名字时，
+            // 后来的那个条目要么顶掉前一个，要么永远生成不出来且没人知道为什么。
+            if let existing = store.entry(titled: title) {
+                if existing.domains.contains(domain.id) {
+                    result.skipped += 1
+                } else if existing.domains.isEmpty {
+                    result.warnings.append("「\(title)」已存在但没有域标记，未自动改写归属")
+                    result.skipped += 1
+                } else {
+                    let owner = existing.domains.first ?? "其它域"
+                    result.warnings.append("「\(title)」已属于 \(owner)，请先改名再生成")
+                    result.skipped += 1
+                }
                 continue
             }
 
             var entry = try store.create(type: .module, title: title)
             entry.tags = ["domain", domain.kind.title]
             entry.sources = sources(for: domain, in: graph)
+            entry.domains = [domain.id]
             entry.body = body(for: domain, in: graph)
             entry.status = .draft
             entry.generatedBy = "领域建模"
@@ -84,6 +98,15 @@ enum WikiDomainSeeding {
 
         lines.append("> 本条目由领域建模自动生成，正文只含事实。")
         lines.append("> **请补充「为什么这样设计」「改动时要注意什么」，然后确认。**")
+        lines.append("")
+
+        // 归属：写进正文也写进 frontmatter。
+        // 正文里留一份是为了「用别的编辑器打开这个 md 时也知道它属于哪个域」，
+        // frontmatter 那份是给程序读的。
+        lines.append("## 归属")
+        lines.append("")
+        lines.append("- 域：\(domain.displayTitle)")
+        lines.append("- 标识：`\(domain.id)`")
         lines.append("")
 
         // 规模

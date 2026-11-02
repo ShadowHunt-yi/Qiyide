@@ -78,6 +78,15 @@ struct WikiEntry: Identifiable, Hashable {
     var tags: [String]
     /// 关联的代码路径。审查时用它匹配改动文件。
     var sources: [String]
+    /// 所属领域，存 `MindNode.id`（如 `domain:service/portrait`）。
+    ///
+    /// 为什么是 id 而不是域标题：域可以改名，id 不变；更重要的是
+    /// 建模、架构、知识三层必须能对上同一个 key，否则「这个域有哪些知识」
+    /// 只能靠 `sources` 路径去猜，一改包名就全断。
+    ///
+    /// 允许为空：AI 随手记的条目未必属于任何已识别的域，
+    /// 这种条目在左栏单独成段（「未归类」），而不是硬塞进某个域。
+    var domains: [String] = []
     var relations: [WikiRelation]
     var body: String
     var updatedAt: Date
@@ -126,6 +135,7 @@ extension WikiEntry {
         var type: WikiEntryType = .topic
         var tags: [String] = []
         var sources: [String] = []
+        var domains: [String] = []
         var relations: [WikiRelation] = []
         var body = text
         var status: WikiStatus = .confirmed
@@ -148,6 +158,9 @@ extension WikiEntry {
                     tags = splitList(value)
                 case "sources", "source":
                     sources = splitList(value)
+                // `domain` 是手写时的简写，`domains` 是生成时的复数形式，两者都认。
+                case "domains", "domain":
+                    domains = splitList(value)
                 case "relations":
                     relations = parseRelations(value)
                 case "status":
@@ -169,6 +182,7 @@ extension WikiEntry {
             type: type,
             tags: tags,
             sources: sources,
+            domains: domains,
             relations: relations,
             body: body.trimmingCharacters(in: .whitespacesAndNewlines),
             updatedAt: updatedAt,
@@ -185,6 +199,7 @@ extension WikiEntry {
         lines.append("type: \(type.rawValue)")
         if !tags.isEmpty { lines.append("tags: \(tags.joined(separator: ", "))") }
         if !sources.isEmpty { lines.append("sources: \(sources.joined(separator: ", "))") }
+        if !domains.isEmpty { lines.append("domains: \(domains.joined(separator: ", "))") }
         if !relations.isEmpty {
             lines.append("relations: \(relations.map { "\($0.kind):\($0.target)" }.joined(separator: "; "))")
         }

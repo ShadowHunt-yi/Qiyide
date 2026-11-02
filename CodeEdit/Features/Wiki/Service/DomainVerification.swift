@@ -109,6 +109,10 @@ enum DomainVerification {
                 }
             }
 
+            await MainActor.run {
+                checkDomainTagging(root: root, graph: result.graph)
+            }
+
             // 离屏渲染导图，用于人工检查排版（字体、留白、连线、图例）。
             if let path = ProcessInfo.processInfo.environment["QIYIDE_VERIFY_SNAPSHOT"] {
                 await MainActor.run {
@@ -123,6 +127,76 @@ enum DomainVerification {
 
             log("验证结束")
             exit(0)
+        }
+    }
+
+    /// 打标自检：frontmatter 往返 + 真实仓库上的回填分布。
+    ///
+    /// 只读：报告算出来只打印，不写盘。
+    @MainActor
+    private static func checkDomainTagging(root: URL, graph: MindGraph) {
+        log("—— 打标自检 ——")
+
+        // 1) 写进去的域必须能原样读回来。
+        let entry = WikiEntry(
+            id: "selfcheck",
+            title: "自检条目",
+            type: .module,
+            tags: [],
+            sources: ["a/b/c.java"],
+            domains: ["domain:a/b", "domain:c"],
+            relations: [],
+            body: "正文",
+            updatedAt: Date(),
+            fileURL: URL(fileURLWithPath: "/tmp/selfcheck.md")
+        )
+        let round = WikiEntry.parse(text: entry.markdown(), fileURL: entry.fileURL)
+        if round.domains == entry.domains {
+            log("打标往返：通过（\(round.domains.joined(separator: ", "))）")
+        } else {
+            log("打标往返：失败 期望 \(entry.domains) 实际 \(round.domains)")
+        }
+
+        // 2) 真实知识库上的归属分布。
+        let store = WikiStore(root: root)
+        store.reload()
+        guard !store.entries.isEmpty else {
+            log("回填报告：知识库为空（\(root.appending(path: ".qiyide/wiki").path)）")
+            return
+        }
+        let report = WikiDomainBackfill.report(graph: graph, store: store)
+        log("回填报告：\(report.summary)")
+        for item in report.gaps.prefix(8) {
+            log("  空缺域 \(item.domainTitle)（\(item.classCount) 类）")
+        }
+        for item in report.suggestions.prefix(8) {
+            log("  建议 \(item.entryTitle) → \(item.domainTitle)  依据 \(item.via)")
+        }
+        for item in report.ambiguous.prefix(5) {
+            log("  多义 \(item.entryTitle) ~ \(item.domainTitle)  依据 \(item.via)")
+        }
+        for item in report.orphans.prefix(5) {
+            log("  无归属 \(item.entryTitle)（\(item.sourceCount) 条关联代码）")
+        }
+
+        // 3) 写入路径自检：只在显式要求时跑，因为它会改文件。
+        guard ProcessInfo.processInfo.environment["QIYIDE_VERIFY_BACKFILL_APPLY"] == "1" else {
+            return
+        }
+        do {
+            let count = try WikiDomainBackfill.apply(report, store: store)
+            log("补写完成：\(count) 条")
+            let after = WikiDomainBackfill.report(graph: graph, store: store)
+            log("补写后：\(after.summary)")
+            for entry in store.entries where !entry.domains.isEmpty {
+                log("  已标 \(entry.displayTitle) → \(entry.domains.joined(separator: ", "))")
+            }
+            for domain in graph.domains {
+                let tagged = store.entries(inDomain: domain.id).count
+                log("  域索引 \(domain.displayTitle)：\(tagged) 条")
+            }
+        } catch {
+            log("补写失败：\(error.localizedDescription)")
         }
     }
 
