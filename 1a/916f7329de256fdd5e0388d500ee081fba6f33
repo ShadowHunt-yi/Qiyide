@@ -1,0 +1,20 @@
+CodeEdit/Features/Wiki/Service/WikiCurationJob.swift
+  h_6984196a933a03 84-90
+CodeEdit/Features/Wiki/Service/WikiCurationRunner.swift
+  h_6984196a933a03 232,234,245-255,289-291,306-307,350-359,538,544-545,551,703-704,710-713,744-745
+CodeEdit/Features/Wiki/Service/WikiStore.swift
+  h_6984196a933a03 641-646
+CodeEdit/Features/Wiki/Service/WikiWindowVerification.swift
+  h_6984196a933a03 162-194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "1a916f7329de256fdd5e0388d500ee081fba6f33",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
