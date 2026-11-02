@@ -34,6 +34,8 @@ struct CodeEditApp: App {
         DomainVerification.runIfRequested()
         // 离屏渲染知识库窗口，用于检查合并后的排版；未设置时直接返回。
         WikiWindowVerification.runIfRequested()
+        // 端到端跑几轮整仓建档，检查进度单调与 sources 不被缩减；未设置时直接返回。
+        WikiCurationVerification.runIfRequested()
         #endif
     }
 

@@ -141,6 +141,30 @@ protocol AINarrativeProvider: Sendable {
     func text(from data: Data) -> String?
 }
 
+// MARK: - 会话
+
+/// 叙述层共用的 URLSession。
+///
+/// 为什么要自己造一个而不是用 `URLSession.shared`：
+/// `urlRequest.timeoutInterval`（默认 25s）只管「两次数据之间」的间隔。
+/// 流式响应的服务端只要还在吐字节——哪怕只是心跳、空行、SSE 注释——
+/// 这个计时器就一直在重置，于是请求可以永远不结束。实测代理挂住时，
+/// 一个批次能拖十分钟以上，界面上看起来就是「建档卡死」。
+///
+/// `timeoutIntervalForResource` 是**整个请求的总上限**，不看中间有没有数据。
+/// 这一层才是真正的兜底：`Task` 取消救不了——`bytes(for:)` 的读取循环
+/// 不检查取消标志，结构化并发只能一直等着它。
+enum AINarrativeHTTP {
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 30
+        // 整仓建档的 relate 请求要生成 4k token 的结构化 JSON，给足余量。
+        configuration.timeoutIntervalForResource = 300
+        configuration.waitsForConnectivity = false
+        return URLSession(configuration: configuration)
+    }()
+}
+
 // MARK: - 共用的 SSE 读取
 
 /// 单行解析结果。
@@ -162,7 +186,7 @@ enum AIStreamRunner {
             let task = Task {
                 var producedText = false
                 do {
-                    let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
+                    let (bytes, response) = try await AINarrativeHTTP.session.bytes(for: urlRequest)
                     guard let http = response as? HTTPURLResponse else {
                         throw AINarrativeError.invalidResponse
                     }
@@ -220,7 +244,7 @@ enum AIStreamRunner {
         probe.setValue("application/json", forHTTPHeaderField: "Accept")
         probe.timeoutInterval = min(max(urlRequest.timeoutInterval, 10), 60)
 
-        guard let (data, response) = try? await URLSession.shared.data(for: probe) else { return nil }
+        guard let (data, response) = try? await AINarrativeHTTP.session.data(for: probe) else { return nil }
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         let text = (String(data: data, encoding: .utf8) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -426,7 +450,7 @@ extension AINarrativeProvider {
         urlRequest.httpBody = rebuilt
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+        let (data, response) = try await AINarrativeHTTP.session.data(for: urlRequest)
         guard let http = response as? HTTPURLResponse else {
             throw AINarrativeError.invalidResponse
         }

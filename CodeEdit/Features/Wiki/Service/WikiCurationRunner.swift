@@ -336,7 +336,11 @@ final class WikiCurationRunner: ObservableObject {
         job.failures.removeAll()
 
         // 扫描要遍历整个文件树、跑一次 git log、再做切分，放主线程会让「点开始」先僵一两秒。
-        let maxModules = options.wholeRepo ? 400 : WikiCurationRunner.defaultMaxModules
+        //
+        // 整仓模式**不截断模块数**：原来固定取前 400 个，建完之后待处理为空，
+        // 就被判定成「全仓完成」——实测 2650 个文件只覆盖到 1242，剩下的一直排不进调度。
+        // 每轮的工作量本来就有 `selectUnits(budget:)` 兜着，不需要在这里截。
+        let maxModules = options.wholeRepo ? Int.max : WikiCurationRunner.defaultMaxModules
         let (modules, considered) = await Task.detached(priority: .userInitiated) {
             WikiRepoIngest.scan(root: root, maxFiles: 100_000, maxModules: maxModules)
         }.value
@@ -393,7 +397,10 @@ final class WikiCurationRunner: ObservableObject {
         }
         alreadyProcessed = freshCount
         job.filesDone = freshCount
-        remainingAfterRun = pendingCount
+        // 剩余量按**全仓**口径算，不能用本轮候选集的 pending：
+        // 候选集一旦被截断（例如只取前 400 个模块），pending 会归零，
+        // 于是明明还有一半文件没建，却被判成「已完成」并写进 job.status。
+        remainingAfterRun = max(considered - freshCount, 0)
 
         // 按依赖图拓扑序排：先建不依赖别人的基础模块，
         // 上层模块建档时才能引用到真实存在的条目，而不是悬空的名字。

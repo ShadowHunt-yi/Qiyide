@@ -232,6 +232,9 @@ enum WikiModelClient {
             if Task.isCancelled { throw AINarrativeError.cancelled }
 
             do {
+                // 超时由 `AINarrativeHTTP.session` 的 timeoutIntervalForResource 兜底。
+                // 这里不再自己包一层 withTimeout：结构化并发在抛超时之后仍会等
+                // 那个挂住的请求结束，反而变成「超时了还卡着」。
                 let raw = try await provider.complete(request.withMaxTokens(budget))
                 guard let object = parseJSON(raw) else {
                     lastError = WikiCuratorError.invalidResponse(String(raw.prefix(120)))
