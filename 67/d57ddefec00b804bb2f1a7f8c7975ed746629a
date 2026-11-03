@@ -1,0 +1,18 @@
+CodeEdit/Features/Editor/FoldState/FoldStateCoordinator.swift
+  h_6984196a933a03 1-28
+CodeEdit/Features/Editor/Verification/FoldingVerification.swift
+  h_6984196a933a03 96-124
+CodeEdit/Features/Editor/Views/CodeFileView.swift
+  h_6984196a933a03 124-125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "67d57ddefec00b804bb2f1a7f8c7975ed746629a",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
