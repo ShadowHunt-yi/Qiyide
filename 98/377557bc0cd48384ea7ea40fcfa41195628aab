@@ -1,0 +1,22 @@
+CodeEdit/CodeEditApp.swift
+  h_6984196a933a03 47-48
+CodeEdit/Features/WindowCommands/FindCommands.swift
+  h_6984196a933a03 12,14-15,20-21,23-33,35-49
+CodeEdit/Features/Editor/Models/EditorInstance.swift
+  h_6984196a933a03 199-220
+CodeEdit/Features/Editor/Verification/FoldingVerification.swift
+  h_6984196a933a03 151
+CodeEdit/Features/Editor/Verification/FindScaleVerification.swift
+  h_6984196a933a03 1-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "98377557bc0cd48384ea7ea40fcfa41195628aab",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
