@@ -36,6 +36,8 @@ struct CodeEditApp: App {
         WikiWindowVerification.runIfRequested()
         // 端到端跑几轮整仓建档，检查进度单调与 sources 不被缩减；未设置时直接返回。
         WikiCurationVerification.runIfRequested()
+        // 量化打开大文件路径上的 O(n) 开销；未设置时直接返回。
+        LargeFileVerification.runIfRequested()
         #endif
     }
 

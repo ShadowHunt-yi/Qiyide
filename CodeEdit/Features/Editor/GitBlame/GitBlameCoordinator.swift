@@ -38,6 +38,26 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
     /// 卸载统一走 `removeAttachments(ofType:)`。
     /// 文本 + 分支指纹，未变化时跳过重算。
     private var lastFingerprint: String = ""
+    /// 编辑代数。替代「全文哈希」当作「文本变没变」的判据。
+    ///
+    /// 原指纹是 `text.hashValue`。实测 12MB / 20 万行的文本，`hashValue` 要 **494ms**
+    /// （`String.hashValue` 走 SipHash，必须遍历每一个字节），而这一步在
+    /// `prepareRefresh` 里、在主线程、打开文件时就会跑一次——界面直接僵半秒。
+    /// 代数由 `textViewDidChangeText` 递增，O(1)，同样能表达「文本变了」。
+    ///
+    /// 注意：`textStorage.string` 本身并不慢（实测 0.0ms，桥接而非复制），
+    /// 所以省掉的只是哈希那 494ms。
+    private var editGeneration: Int = 0
+
+    /// 超过这么多字符就不装行级标注。
+    ///
+    /// 标注是「每行一个 `TextAttachment`」：20 万行的文件会产出 20 万个附件对象
+    /// （实测逐行枚举本身 38ms，建 20 万个附件才是真正的灾难），
+    /// 内存、排版、绘制全部按行数线性膨胀。
+    /// 编辑器的本职是把文件显示出来，标注只是附加信息——大文件宁可不显示标注，
+    /// 也不能失去响应。
+    private static let maxAnnotatedCharacters = 200_000
+
     /// 真实故障只提示一次，避免每次编辑都弹横幅。
     private var hasNotifiedFailure: Bool = false
     /// 工作区仓库管理器可能晚于编辑器就绪，只重试一次。
@@ -70,6 +90,8 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
     func controllerDidDisappear(controller: TextViewController) {}
 
     func textViewDidChangeText(controller: TextViewController) {
+        // 代数递增代替全文哈希：见 `editGeneration` 的说明。
+        editGeneration &+= 1
         scheduleRefresh()
     }
 
@@ -105,7 +127,6 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
     /// 一次刷新所需的主线程快照。
     private struct RefreshRequest {
         let manager: SourceControlManager
-        let text: String
         let fingerprint: String
     }
 
@@ -136,7 +157,7 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let controller = self.controller else { return }
-                self.apply(blames, to: controller, text: request.text)
+                self.apply(blames, to: controller)
                 self.lastFingerprint = request.fingerprint
                 self.hasNotifiedFailure = false
             }
@@ -200,12 +221,23 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
         // 可能不是仓库（或是个没有提交的空仓库），而文件本身位于某个嵌套仓库内；
         // 仓库归属由 `blameLines` 按文件目录解析，不可用原因走 GitBlameUnavailable。
 
-        let text = controller.textView.textStorage.string
+        // 大文件不装标注，也不进 git：这一步是打开大文件卡死的主因之一。
+        guard let storage = controller.textView.textStorage else { return nil }
+        guard storage.length <= Self.maxAnnotatedCharacters else {
+            if !lastFingerprint.isEmpty {
+                removeAllAnnotations(from: controller)
+                lastFingerprint = ""
+            }
+            return nil
+        }
+
         let branch = manager.currentBranch?.name ?? ""
-        let fingerprint = "\(branch)|\(text.hashValue)|\(fileURL.path)"
+        // 指纹只用 O(1) 的信息：编辑代数、长度、分支、路径。
+        // 不再取 `textStorage.string`（全文复制）和 `text.hashValue`（全文哈希）。
+        let fingerprint = "\(branch)|\(editGeneration)|\(storage.length)|\(fileURL.path)"
         guard fingerprint != lastFingerprint else { return nil }
 
-        return RefreshRequest(manager: manager, text: text, fingerprint: fingerprint)
+        return RefreshRequest(manager: manager, fingerprint: fingerprint)
     }
 
     @MainActor
@@ -217,10 +249,13 @@ final class GitBlameCoordinator: TextViewCoordinator, GitBlameAnnotationDelegate
     // MARK: - 标注安装 / 卸载
 
     @MainActor
-    private func apply(_ blames: [GitBlameLine], to controller: TextViewController, text: String) {
+    private func apply(_ blames: [GitBlameLine], to controller: TextViewController) {
         removeAllAnnotations(from: controller)
 
-        let nsText = text as NSString
+        // 直接用 `mutableString` 桥接：`textStorage.string` 会复制整个文件，
+        // 这里只是要按行枚举，不需要那份副本。
+        guard let storage = controller.textView.textStorage else { return }
+        let nsText = storage.mutableString
         let fullRange = NSRange(location: 0, length: nsText.length)
         var lineRanges: [NSRange] = []
         nsText.enumerateSubstrings(in: fullRange, options: [.byLines, .substringNotRequired]) { _, lineRange, _, _ in

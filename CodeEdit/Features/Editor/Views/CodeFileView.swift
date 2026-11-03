@@ -39,10 +39,24 @@ struct CodeFileView: View {
     /// 必须是 computed：数组每次求值都新建，但元素是 `@State` 里的同一批实例，
     /// `Highlighter.setProviders` 按对象身份比较后会发现「没有变化」，不会重建管线。
     private var resolvedHighlightProviders: [any HighlightProviding] {
+        // 大文件不做语法高亮：tree-sitter 要对全文建解析树，
+        // 打开一个几十 MB 的日志时这一步就足够让界面失去响应。
+        guard !isLargeFile else { return [] }
         if codeFile.getLanguage().tsName == "XML" {
             return [xmlHighlightProvider]
         }
         return [codeFile.languageServerObjects.highlightProvider, treeSitterClient]
+    }
+
+    /// 大文件阈值（字符数，约 4MB）。
+    ///
+    /// 超过它就不再开语法高亮与 minimap：两者都是全文级的工作，
+    /// 而打开一个大日志/大 SQL 时，用户要的是「先看到内容」。
+    private static let largeFileThreshold = 2_000_000
+
+    /// `NSTextStorage.length` 是 O(1)，放在 body 里判断没有额外代价。
+    private var isLargeFile: Bool {
+        (codeFile.content?.length ?? 0) > Self.largeFileThreshold
     }
 
     @AppSettings(\.textEditing.defaultTabWidth)
@@ -173,7 +187,7 @@ struct CodeFileView: View {
                 ),
                 peripherals: .init(
                     showGutter: showGutter,
-                    showMinimap: showMinimap,
+                    showMinimap: showMinimap && !isLargeFile,
                     showReformattingGuide: showReformattingGuide,
                     showFoldingRibbon: showFoldingRibbon,
                     invisibleCharactersConfiguration: invisibleCharactersConfiguration.textViewOption(),
