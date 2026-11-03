@@ -40,6 +40,10 @@ struct CodeEditApp: App {
         LargeFileVerification.runIfRequested()
         // 对照实验：大文件初始解析同步 vs 异步；未设置时直接返回。
         HighlightScaleVerification.runIfRequested()
+        // 量化附件集合的规模成本（逐条 vs 批量）；未设置时直接返回。
+        AttachmentScaleVerification.runIfRequested()
+        // 验证折叠的候选计算与行高归零；未设置时直接返回。
+        FoldingVerification.runIfRequested()
         #endif
     }
 
