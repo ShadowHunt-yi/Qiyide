@@ -1,0 +1,14 @@
+docs/editor-architecture-comparison.md
+  h_6984196a933a03 34,90-93,150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "ab701514b91b70dd4e85ce96e6c2be851241e925",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
