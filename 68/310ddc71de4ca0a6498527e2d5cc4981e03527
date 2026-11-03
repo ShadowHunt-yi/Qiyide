@@ -1,0 +1,29 @@
+CodeEdit/Features/Documents/CodeFileDocument/CodeFileDocument.swift
+  s_b8eacdb4864eb1::t_1c4b768e1b7dff 173-174,325-326,334-335,341-343,347-358,360-361,363-364
+  s_b8eacdb4864eb1::t_f09997f06a45ba 327-333
+CodeEdit/Features/Editor/Verification/LargeFileVerification.swift
+  s_b8eacdb4864eb1::t_1c4b768e1b7dff 1-83
+CodeEdit/Features/Editor/GitBlame/GitBlameCoordinator.swift
+  s_b8eacdb4864eb1::t_1c4b768e1b7dff 41-42,46-53,59-60,93-94,160,224-233,235-237,240,252,255-258
+  s_b8eacdb4864eb1::t_da81a18d85035c 43-45,54-58
+CodeEdit/Features/Editor/Views/CodeFileView.swift
+  s_b8eacdb4864eb1::t_1c4b768e1b7dff 42-44,51-61,190
+CodeEdit/CodeEditApp.swift
+  s_b8eacdb4864eb1::t_1c4b768e1b7dff 39-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "68310ddc71de4ca0a6498527e2d5cc4981e03527",
+  "prompts": {},
+  "sessions": {
+    "s_b8eacdb4864eb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2da4e1d8-4c6a-4fe8-8a21-e9e7959a12b8",
+        "model": "DeepSeek-V4.1-Flash"
+      },
+      "human_author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
