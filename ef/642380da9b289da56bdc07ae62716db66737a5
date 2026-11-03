@@ -1,0 +1,14 @@
+CodeEdit/Features/LSP/LanguageServer/Capabilities/LanguageServer+DocumentSync.swift
+  h_6984196a933a03 11-23,33-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "ef642380da9b289da56bdc07ae62716db66737a5",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
