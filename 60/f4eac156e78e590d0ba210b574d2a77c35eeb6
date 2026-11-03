@@ -1,0 +1,18 @@
+CodeEdit/CodeEditApp.swift
+  h_6984196a933a03 49-52
+CodeEdit/Features/Debug/DebugLaunchHooks.swift
+  h_6984196a933a03 1-65
+CodeEdit/Features/Editor/Verification/HighlightLongLineVerification.swift
+  h_6984196a933a03 1-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "60f4eac156e78e590d0ba210b574d2a77c35eeb6",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
