@@ -1,0 +1,14 @@
+CodeEdit/Features/Editor/Verification/HighlightLongLineVerification.swift
+  h_6984196a933a03 123-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "98ec013b1b922d933b31c8e09f23a5bc7226a1d5",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
