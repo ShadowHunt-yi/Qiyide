@@ -1,0 +1,26 @@
+CodeEdit/CodeEditApp.swift
+  h_6984196a933a03 53-54
+CodeEdit/Features/Editor/GoToDefinition/GoToDefinitionCoordinator.swift
+  h_6984196a933a03 1-206
+CodeEdit/Features/Editor/GoToDefinition/SameFileDefinitionSearch.swift
+  h_6984196a933a03 1-161
+CodeEdit/Features/Editor/Verification/GoToDefinitionVerification.swift
+  h_6984196a933a03 1-114
+CodeEdit/Features/Editor/Views/CodeFileView.swift
+  h_6984196a933a03 120-130
+CodeEdit/Features/LSP/Service/LSPCodeActions.swift
+  h_6984196a933a03 16,105-130,520,561,565-576
+CodeEdit/Features/WindowCommands/NavigateCommands.swift
+  h_6984196a933a03 57-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "038b1ec621bf0f982a68bb5a89afa960dfc87a66",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
