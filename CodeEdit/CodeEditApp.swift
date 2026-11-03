@@ -38,6 +38,8 @@ struct CodeEditApp: App {
         WikiCurationVerification.runIfRequested()
         // 量化打开大文件路径上的 O(n) 开销；未设置时直接返回。
         LargeFileVerification.runIfRequested()
+        // 对照实验：大文件初始解析同步 vs 异步；未设置时直接返回。
+        HighlightScaleVerification.runIfRequested()
         #endif
     }
 
