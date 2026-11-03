@@ -1,0 +1,18 @@
+CodeEdit/CodeEditApp.swift
+  h_6984196a933a03 41-42
+CodeEdit/Features/Editor/Verification/HighlightScaleVerification.swift
+  h_6984196a933a03 1-74
+CodeEdit/Features/Editor/Views/CodeFileView.swift
+  h_6984196a933a03 41-44,54-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "0d4081d7eb03e75ac16e55c23cc145d07b85c343",
+  "prompts": {},
+  "humans": {
+    "h_6984196a933a03": {
+      "author": "qiyi <1724747604@qq.com>"
+    }
+  }
+}
