@@ -1,0 +1,28 @@
+scripts/verify/wiki-dev/Stubs.swift
+  s_2a634cebefba24::t_e5f4ba213147e0 1-56
+README.md
+  s_2a634cebefba24::t_f85d15433a7241 153-163
+scripts/verify/wiki-dev/main.swift
+  s_2a634cebefba24::t_3e5d943162923d 43
+  s_2a634cebefba24::t_e0825eadc0b288 1-42,44-46
+scripts/verify/wiki-dev/run.sh
+  s_2a634cebefba24::t_7e90039cbf24ef 15,62-86,102-103,131-133,136
+  s_2a634cebefba24::t_e0825eadc0b288 1-14,16-61,104-130,134-135,137-139
+  s_2a634cebefba24::t_9b9ee628faa0dc 87-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "f500ddf8a683fa666a31e53e62fb3e7a24cb3c57",
+  "prompts": {},
+  "sessions": {
+    "s_2a634cebefba24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8abc42ef-5ae5-4718-a491-76f0985f2e7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "unknown"
+    }
+  }
+}
