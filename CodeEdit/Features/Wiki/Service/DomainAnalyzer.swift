@@ -107,7 +107,9 @@ enum DomainAnalyzer {
     // MARK: 中间结构
 
     /// 一个叶子包（真正含 .java 的目录）。
-    private struct Leaf {
+    ///
+    /// 不是 `private`：模块节点的生成与结构索引在别的文件里，都要用它。
+    struct Leaf {
         /// 已去掉公共包前缀的业务路径，如 `agent/suggest/generate`。
         var parts: [String]
         var classes: [String]
@@ -117,6 +119,10 @@ enum DomainAnalyzer {
         var absoluteFiles: [URL] = []
         /// 仓库相对路径：git 命令只认这个。
         var repoPaths: [String] = []
+        /// 所在 Maven 模块的公共包前缀（`com/jd/…/app`），用来还原全限定名。
+        var prefix: [String] = []
+        /// 「源码根 + 公共前缀」的仓库相对路径。给定任意文件路径，去掉它剩下的就是业务路径。
+        var sourceRoot: String = ""
     }
 
     /// 一个 Maven 模块的扫描结果。
@@ -125,7 +131,7 @@ enum DomainAnalyzer {
     /// （`com/jd/home/shj/server/saas/plus/ai/platform/app/agent/suggest`），
     /// 前 10 层对所有文件都一样。直接按物理层级统计，要么因为太深被跳过，
     /// 要么把「平台路径」当成业务层级。先求公共前缀，剩下的才是业务结构。
-    private struct ModuleScan {
+    struct ModuleScan {
         var root: URL
         var prefix: [String]
         var classesByDir: [String: [String]]
@@ -222,7 +228,7 @@ enum DomainAnalyzer {
 
     // MARK: 扫描
 
-    private static func findJavaRoots(_ root: URL) -> [URL] {
+    static func findJavaRoots(_ root: URL) -> [URL] {
         var result: [URL] = []
         guard let enumerator = FileManager.default.enumerator(
             at: root,
@@ -247,7 +253,7 @@ enum DomainAnalyzer {
     /// 扫描每个模块下的 .java 文件，并按目录归组。
     ///
     /// 一次遍历同时拿到类名与文件路径，避免为了算前缀再扫一遍。
-    private static func scanModules(javaRoots: [URL]) -> [ModuleScan] {
+    static func scanModules(javaRoots: [URL]) -> [ModuleScan] {
         var modules: [ModuleScan] = []
 
         for javaRoot in javaRoots {
@@ -283,12 +289,13 @@ enum DomainAnalyzer {
     ///
     /// 同时算好两种路径：读文件要绝对路径、跑 git 要仓库相对路径。
     /// 之前只存了「相对 src/main/java」的路径，后续两个环节都拿它当基准，全部读空。
-    private static func makeLeaves(modules: [ModuleScan], root: URL) -> [Leaf] {
+    static func makeLeaves(modules: [ModuleScan], root: URL) -> [Leaf] {
         var leaves: [Leaf] = []
         for module in modules {
             let moduleRel = module.root.path
                 .replacingOccurrences(of: root.path, with: "")
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let sourceRoot = ([moduleRel] + module.prefix).filter { !$0.isEmpty }.joined(separator: "/")
             for (dir, classes) in module.classesByDir {
                 guard let parts = businessParts(dir: dir, prefix: module.prefix) else { continue }
                 let files = module.filesByDir[dir] ?? []
@@ -297,7 +304,9 @@ enum DomainAnalyzer {
                     classes: classes,
                     files: files,
                     absoluteFiles: files.map { module.root.appending(path: $0) },
-                    repoPaths: files.map { moduleRel.isEmpty ? $0 : "\(moduleRel)/\($0)" }
+                    repoPaths: files.map { moduleRel.isEmpty ? $0 : "\(moduleRel)/\($0)" },
+                    prefix: module.prefix,
+                    sourceRoot: sourceRoot
                 ))
             }
         }
@@ -641,7 +650,7 @@ enum DomainAnalyzer {
     }
 
     /// 叶子包聚合到哪个候选（二级 key）。
-    private static func aggregateKey(for leaf: Leaf) -> String {
+    static func aggregateKey(for leaf: Leaf) -> String {
         leaf.parts.prefix(2).joined(separator: "/")
     }
 
@@ -761,10 +770,10 @@ enum DomainAnalyzer {
             .map { (candidate: $0, result: score($0, maxClasses: maxClasses)) }
             .sorted { $0.result.0 > $1.result.0 }
 
-        // 模块节点先按域分桶建好。
+        // 叶子包先按二级 key 分桶，后面每个域只看自己的那一桶。
         // 原实现是「每个域再扫一遍全部叶子 + 用 nodes.contains 查重」，
         // 域一多就退化成 O(域 × 叶子 × 节点数)，这里降到 O(叶子)。
-        let modulesByDomain = groupModules(leaves: leaves)
+        let leavesByKey = Dictionary(grouping: leaves, by: aggregateKey(for:))
 
         var nodes: [MindNode] = []
         var rootNode = MindNode(id: "system", title: root.lastPathComponent, kind: .system)
@@ -807,7 +816,11 @@ enum DomainAnalyzer {
             node.owner = OwnerInfo(authors: item.candidate.authors)
 
             // 模块按类数降序：图上从上到下就是「从大到小」，不用逐个去认。
-            for module in (modulesByDomain[item.candidate.key] ?? []).sorted(by: { $0.classCount > $1.classCount }) {
+            for module in moduleNodes(
+                domainID: id,
+                domainParts: item.candidate.parts,
+                leaves: leavesByKey[item.candidate.key] ?? []
+            ) {
                 node.childIDs.append(module.id)
                 nodes.append(module)
             }
@@ -819,8 +832,10 @@ enum DomainAnalyzer {
         // 剩余候选：按第一层聚合。这里是「销售搭子」这类跨包产品概念的落点，
         // 自动识别只能给出「Agent 核心」这样的名字，具体叫什么由人在导图上改。
         var leftovers: [String: Candidate] = [:]
+        var leftoverLeaves: [String: [Leaf]] = [:]
         for candidate in candidates.values where !claimed.contains(candidate.key) {
             let level1 = candidate.parts.first ?? candidate.key
+            leftoverLeaves[level1, default: []].append(contentsOf: leavesByKey[candidate.key] ?? [])
             var bucket = leftovers[level1] ?? Candidate(key: level1, parts: [level1])
             bucket.classes.append(contentsOf: candidate.classes)
             bucket.files.append(contentsOf: candidate.files)
@@ -867,6 +882,16 @@ enum DomainAnalyzer {
                 .map { AuthorStat(name: $0.key, commits: $0.value) }
                 .sorted { $0.commits > $1.commits })
             node.isManual = false
+            // 兜底域同样要有模块。以前这里什么都不挂，「搭子」七百多个类在图上
+            // 只有一个光秃秃的域节点，点不进去也看不出里面是什么。
+            for module in moduleNodes(
+                domainID: id,
+                domainParts: [level1],
+                leaves: leftoverLeaves[level1] ?? []
+            ) {
+                node.childIDs.append(module.id)
+                nodes.append(module)
+            }
             nodes.append(node)
             rootNode.childIDs.append(id)
         }
@@ -882,30 +907,6 @@ enum DomainAnalyzer {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         graph.rebuildIndex()
         return graph
-    }
-
-    /// 叶子包 → 三级模块节点，按所属域（二级 key）分桶。
-    ///
-    /// 分桶的意义是把「找我的子模块」从「遍历全部叶子」变成一次查表；
-    /// 三级 key 重复时只留第一个（同名包出现在多个 Maven 模块里时，
-    /// 图上只画一个节点，避免同一模块被计入两次）。
-    private static func groupModules(leaves: [Leaf]) -> [String: [MindNode]] {
-        var result: [String: [MindNode]] = [:]
-        var seen = Set<String>()
-        for leaf in leaves where leaf.parts.count >= 3 {
-            let domainKey = aggregateKey(for: leaf)
-            let moduleKey = leaf.parts.prefix(3).joined(separator: "/")
-            let moduleID = "module:" + moduleKey
-            guard seen.insert(moduleID).inserted else { continue }
-
-            var module = MindNode(id: moduleID, title: leaf.parts[2], kind: .module)
-            module.parentID = "domain:" + domainKey
-            module.packages = [moduleKey]
-            module.classCount = leaf.classes.count
-            module.fileCount = leaf.files.count
-            result[domainKey, default: []].append(module)
-        }
-        return result
     }
 
     /// 域标题：优先用包名词典，其次用包名本身。

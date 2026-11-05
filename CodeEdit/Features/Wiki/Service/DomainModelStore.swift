@@ -159,12 +159,25 @@ final class DomainModelStore: ObservableObject {
     }
 
     /// 比较「模型已覆盖的包」与「本次扫描到的包」。
+    ///
+    /// 按路径段的前缀判断覆盖，不按字符串相等：模型里有 `agent`，
+    /// 扫描到 `agent/memory` 就算已覆盖。否则一份只记到域的旧锁定模型，
+    /// 遇到现在每个域都带模块的识别结果，会把几十个模块全报成「新增的包」。
     private func makeDrift(from result: DomainAnalysisResult) -> DriftReport {
         let covered = Set(graph.nodes.flatMap(\.packages).filter { !$0.isEmpty })
         let scanned = Set(result.graph.nodes.flatMap(\.packages).filter { !$0.isEmpty })
+        func isPrefix(_ prefix: String, of path: String) -> Bool {
+            path == prefix || path.hasPrefix(prefix + "/")
+        }
+        let uncovered = scanned.filter { package in
+            !covered.contains { isPrefix($0, of: package) }
+        }
+        let missing = covered.filter { package in
+            !scanned.contains { isPrefix(package, of: $0) || isPrefix($0, of: package) }
+        }
         return DriftReport(
-            uncoveredPackages: Array(scanned.subtracting(covered)).sorted(),
-            missingPackages: Array(covered.subtracting(scanned)).sorted(),
+            uncoveredPackages: uncovered.sorted(),
+            missingPackages: missing.sorted(),
             baseCommitChanged: result.graph.baseCommit != graph.baseCommit
         )
     }
