@@ -2,7 +2,7 @@
 //  WikiWindow+Center.swift
 //  CodeEdit
 //
-//  中间栏：三种看法（导图 / 图谱 / 架构）与它们的操作区。
+//  中间栏：四种看法（导图 / 结构 / 图谱 / 架构）与它们的操作区。
 //
 //  「哪个视图」和「这个视图能做什么操作」放在一起：
 //  分开写就会出现「切到架构模式还留着导图的按钮」这种事。
@@ -22,7 +22,7 @@ extension WikiWindowView {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 186)
+                .frame(width: 236)
 
                 if centerMode == .mindmap {
                     Picker("", selection: $activeSpec) {
@@ -72,6 +72,13 @@ extension WikiWindowView {
                     displayGraph: activeSpec == nil ? nil : displayGraph,
                     isReadOnly: activeSpec != nil,
                     graphToken: (activeSpec?.id ?? "model") + "#\(domains.revision)"
+                )
+            case .structure:
+                StructureMapView(
+                    store: domains,
+                    root: store.root,
+                    selectedDomain: mindMapSelection,
+                    onOpenFile: openSource
                 )
             case .architecture:
                 WikiArchitectureView(architecture: store.architecture)

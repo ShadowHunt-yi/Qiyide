@@ -90,16 +90,19 @@ struct WikiWindowView: View {
     @State var showBatchDelete = false
     @State var batchNotice: String?
 
-    /// 中间栏的三种看法：
-    /// 导图看「域怎么划」，图谱看「知识谁连着谁」，架构看「系统分几层」。
+    /// 中间栏的四种看法：
+    /// 导图看「域怎么划」，结构看「现在的代码长什么样」，
+    /// 图谱看「知识谁连着谁」，架构看「系统分几层」。
     enum CenterMode: String, CaseIterable, Identifiable {
         case mindmap
+        case structure
         case graph
         case architecture
         var id: String { rawValue }
         var title: String {
             switch self {
             case .mindmap: return "导图"
+            case .structure: return "结构"
             case .graph: return "图谱"
             case .architecture: return "架构"
             }
@@ -120,7 +123,8 @@ struct WikiWindowView: View {
         root: URL,
         workspace: WorkspaceDocument?,
         autoLoad: Bool = false,
-        initiallySelectedDomain: String? = nil
+        initiallySelectedDomain: String? = nil,
+        initialCenterMode: CenterMode = .mindmap
     ) {
         self.workspace = workspace
         let wikiStore = WikiStore(root: root)
@@ -132,6 +136,7 @@ struct WikiWindowView: View {
         _store = StateObject(wrappedValue: wikiStore)
         _domains = StateObject(wrappedValue: DomainModelStore(root: root))
         _selectedDomain = State(initialValue: initiallySelectedDomain)
+        _centerMode = State(initialValue: initialCenterMode)
     }
 
     var body: some View {
