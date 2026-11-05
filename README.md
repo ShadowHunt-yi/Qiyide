@@ -150,6 +150,17 @@ Qiyide 在 CodeEdit 的基础上做产品化与工程化改造：可以与原版
 
 产物为 `build/QiyideDev.app`：显示名 `QiyideDev`、Bundle ID `app.qiyide.QiyideDev`，与正式版 Qiyide 的偏好、Dock 图标互不覆盖，可以同时装在同机器的 `/Applications` 里。由于 Bundle ID 不同，两套配置不共享。
 
+**没有 Xcode 的机器**（只装了命令行工具）打不出完整的包，但知识库这一块只依赖系统框架，可以单独编译运行：
+
+```bash
+./scripts/verify/wiki-dev/run.sh structure <仓库>   # 结构地图：不变量断言 + 各层级截图
+./scripts/verify/wiki-dev/run.sh domain <仓库>      # 领域识别，纯文本输出
+./scripts/verify/wiki-dev/run.sh open <仓库>        # 打开真实的知识库窗口
+./scripts/verify/wiki-dev/run.sh test               # CodeEditTests/Features/Wiki 的单元测试
+```
+
+编译的是仓库里的同一份源码，只把 App 侧的几个类型换成替身（`scripts/verify/wiki-dev/Stubs.swift`）。
+
 **云端**：Actions → `Build DMG` → Run workflow；或推送 `v*` 标签自动构建，发布时会同时产出三处：
 
 | 位置 | 用途 |
