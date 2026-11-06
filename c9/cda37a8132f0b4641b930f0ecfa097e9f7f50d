@@ -1,0 +1,19 @@
+.workbuddy/memory/2026-11-05.md
+  s_2a634cebefba24::t_e38ec0cf58f976 116,120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "c9cda37a8132f0b4641b930f0ecfa097e9f7f50d",
+  "prompts": {},
+  "sessions": {
+    "s_2a634cebefba24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8abc42ef-5ae5-4718-a491-76f0985f2e7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "unknown"
+    }
+  }
+}
