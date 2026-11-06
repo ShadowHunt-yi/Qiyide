@@ -291,14 +291,22 @@ enum DomainAnalyzer {
     /// 之前只存了「相对 src/main/java」的路径，后续两个环节都拿它当基准，全部读空。
     static func makeLeaves(modules: [ModuleScan], root: URL) -> [Leaf] {
         var leaves: [Leaf] = []
+        // 两边都先解析符号链接再相减。目录遍历给出的是解析后的真实路径（`/private/var/…`），
+        // 而传进来的根可能还带着链接（`/var/…`、`/tmp/…`）：直接做字符串替换会一个字都替换不掉，
+        // 「仓库相对路径」就成了绝对路径，后面 git 的路径全部对不上。
+        let rootPath = root.resolvingSymlinksInPath().path
         for module in modules {
-            let moduleRel = module.root.path
-                .replacingOccurrences(of: root.path, with: "")
+            let modulePath = module.root.resolvingSymlinksInPath().path
+            let moduleRel = (modulePath.hasPrefix(rootPath) ? String(modulePath.dropFirst(rootPath.count)) : modulePath)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             let sourceRoot = ([moduleRel] + module.prefix).filter { !$0.isEmpty }.joined(separator: "/")
-            for (dir, classes) in module.classesByDir {
+            // 按目录名排序后再走。字典的遍历顺序每次运行都不一样，而后面的词频统计
+            // 「每个候选只看前 100 个文件」——顺序一变，抽到的文件就变，分数跟着飘。
+            // 实测同一份代码上 `agent/suggest` 在 0.66 到 0.70 之间跳，有时成域、有时不成。
+            for dir in module.classesByDir.keys.sorted() {
                 guard let parts = businessParts(dir: dir, prefix: module.prefix) else { continue }
-                let files = module.filesByDir[dir] ?? []
+                let classes = (module.classesByDir[dir] ?? []).sorted()
+                let files = (module.filesByDir[dir] ?? []).sorted()
                 leaves.append(Leaf(
                     parts: parts,
                     classes: classes,
