@@ -152,7 +152,17 @@ Qiyide 在 CodeEdit 的基础上做产品化与工程化改造：可以与原版
 
 产物为 `build/QiyideDev.app`：显示名 `QiyideDev`、Bundle ID `app.qiyide.QiyideDev`，与正式版 Qiyide 的偏好、Dock 图标互不覆盖，可以同时装在同机器的 `/Applications` 里。由于 Bundle ID 不同，两套配置不共享。
 
-**没有 Xcode 的机器**（只装了命令行工具）打不出完整的包，但知识库这一块只依赖系统框架，可以单独编译运行：
+**没有 Xcode 的机器**（只装了命令行工具）跑不了 `xcodebuild`，但 App 是纯 Swift、依赖都是 SwiftPM 包，可以用命令行工具自带的 `swift build` 打出开发版：
+
+```bash
+./scripts/package-dev-spm.sh           # 编译完整 App 并组装 build/QiyideDev.app
+./scripts/package-dev-spm.sh --run     # 组装后启动
+./scripts/package-dev-spm.sh --test    # 对着完整 App 的模块跑知识库的单元测试
+```
+
+它替 Xcode 做三件事：按工程的 `Package.resolved` 生成 `Package.swift`、按资源目录生成 `Color.steel` 这类符号、手工组装 `.app`。和 Xcode 打的包相比只差外观：没有 `actool`，CodeEditSymbols 的自定义 SF 符号显示为空白；不带 Finder 扩展。本地依赖 `../CodeEditSourceEditor`、`../CodeEditTextView` 要在同级目录，`../CodeEditLanguages` 没有时会自动克隆。
+
+只想验证知识库这一块时有个更快的入口（十几秒），它只编 `Features/Wiki`：
 
 ```bash
 ./scripts/verify/wiki-dev/run.sh structure <仓库>   # 结构地图：不变量断言 + 各层级截图
