@@ -311,6 +311,54 @@ final class StructureDiffRepositoryTests {
     }
 
     @Test
+    func adoptingTheNewPackageSettlesTheAsk() throws {
+        write("shop/gift/GiftService.java", """
+        package com.x.shop.gift;
+
+        import com.x.shop.order.api.OrderApi;
+
+        public class GiftService {
+        }
+        """)
+        commit("new package")
+
+        // 按建议把它认领到订单域：它不再落在兜底域里，对订单的引用也成了域内引用。
+        var adopted = graph()
+        adopted.adopt(package: "shop/gift", title: "gift", into: "domain:shop/order")
+        let index = StructureIndex.build(packages: DomainAnalyzer.scanPackages(root: root), graph: adopted)
+        #expect(index.domain(ofModule: "module:shop/gift")?.id == "domain:shop/order")
+        let diff = try StructureDiffBuilder.build(
+            root: root,
+            index: index,
+            options: StructureDiffBuilder.Options(target: "main")
+        ).get()
+        #expect(diff.asks.isEmpty)
+        #expect(diff.newModules == ["module:shop/gift"])
+    }
+
+    @Test
+    func decisionsAndScopePersistPerBranch() {
+        StructureDecisionStore.save(["dep:add:a->b": .violation, "api:x": .accepted], root: root, branch: "feature")
+        StructureDecisionStore.save(["scope": .accepted], root: root, branch: "other")
+        StructureDecisionStore.saveScope(["domain:shop/order"], root: root, branch: "feature")
+
+        #expect(StructureDecisionStore.load(root: root, branch: "feature") == [
+            "dep:add:a->b": .violation,
+            "api:x": .accepted
+        ])
+        #expect(StructureDecisionStore.loadScope(root: root, branch: "feature") == ["domain:shop/order"])
+        #expect(StructureDecisionStore.loadScope(root: root, branch: "other").isEmpty)
+
+        // 清空一个分支的决定，不影响别的分支，也不影响它自己声明的范围。
+        StructureDecisionStore.save([:], root: root, branch: "feature")
+        #expect(StructureDecisionStore.load(root: root, branch: "feature").isEmpty)
+        #expect(StructureDecisionStore.load(root: root, branch: "other") == ["scope": .accepted])
+        #expect(StructureDecisionStore.loadScope(root: root, branch: "feature") == ["domain:shop/order"])
+        // 决定文件在 .qiyide 下，不算进分支的改动。
+        #expect((try? diff().0.fileCount) == 0)
+    }
+
+    @Test
     func newSubpackageInsideADomainAsksNothing() throws {
         // 业务域下面新加子包：归属由路径决定，没有歧义。
         write("shop/order/audit/OrderAudit.java", "package com.x.shop.order.audit;\n\npublic class OrderAudit {\n}\n")

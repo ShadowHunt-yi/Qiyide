@@ -16,6 +16,7 @@
 //  清单跟着面包屑收窄：走进哪个域，就只剩这个域里要确认的事。
 //
 
+import AppKit
 import SwiftUI
 
 struct StructureMapView: View {
@@ -106,6 +107,12 @@ struct StructureMapView: View {
             guard let domainID, domainID != path.first, index.domain(domainID) != nil else { return }
             path = [domainID]
         }
+        // 人和 AI 是轮流干活的：AI 改完一轮，人切回来看。切回来的那一刻重扫一遍，
+        // 看到的就是最新的代码，不用记得去点刷新。
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard !isStatic, !isLoading, !isDiffing, !store.graph.isEmpty else { return }
+            Task { await reload() }
+        }
         .onChange(of: showsDiff) { _, _ in Task { await reloadDiff() } }
         .onChange(of: target) { _, _ in Task { await reloadDiff() } }
         .onChange(of: includeWorkingTree) { _, _ in Task { await reloadDiff() } }
@@ -156,7 +163,8 @@ struct StructureMapView: View {
                     if let overlay {
                         diffHeader(overlay)
                     }
-                    level(overlay)
+                    // 分支没有改任何源码时不叠标记：否则整张图都是「没动过」的压暗态，反而看不清。
+                    level(overlay.flatMap { $0.diff.changes.isEmpty ? nil : $0 })
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)

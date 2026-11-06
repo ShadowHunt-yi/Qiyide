@@ -94,7 +94,11 @@ struct StructureIndexTests {
         let nodes = DomainAnalyzer.moduleNodes(
             domainID: "domain:leftover:agent",
             domainParts: ["agent"],
-            leaves: [leaf("agent/memory", classes: 2), leaf("agent/memory/db", classes: 3), leaf("agent/tool", classes: 1)]
+            leaves: [
+                leaf("agent/memory", classes: 2),
+                leaf("agent/memory/db", classes: 3),
+                leaf("agent/tool", classes: 1)
+            ]
         )
         #expect(nodes.map(\.id) == ["module:agent/memory", "module:agent/tool"])
         #expect(nodes.map(\.classCount) == [5, 1])
@@ -153,12 +157,33 @@ struct StructureIndexTests {
     }
 
     @Test
+    func adoptingAPackageCreatesOrMovesItsModule() {
+        var graph = sampleGraph()
+        // 模型里还没有的包：新建节点挂到指定的域下。
+        graph.adopt(package: "agent/handoff", title: "handoff", into: "domain:agent/cs")
+        #expect(graph.node("module:agent/handoff")?.parentID == "domain:agent/cs")
+        #expect(graph.node("module:agent/handoff")?.isManual == true)
+        // 模型里已有的包：改挂过去，不重复建节点。
+        graph.adopt(package: "agent/memory", title: "memory", into: "domain:agent/cs")
+        #expect(graph.nodes.filter { $0.id == "module:agent/memory" }.count == 1)
+
+        let assigner = StructureAssigner(graph: graph, sourceRoots: [])
+        #expect(assigner.assign(parts: ["agent", "handoff"]).domainID == "domain:agent/cs")
+        #expect(assigner.assign(parts: ["agent", "handoff"]).isModeled)
+        #expect(assigner.assign(parts: ["agent", "memory", "db"]).domainID == "domain:agent/cs")
+        // 不存在的域：什么都不做。
+        graph.adopt(package: "agent/tool", title: "tool", into: "domain:nope")
+        #expect(graph.node("module:agent/tool") == nil)
+    }
+
+    @Test
     func filePathMapsBackToBusinessPath() {
         let assigner = StructureAssigner(graph: sampleGraph(), sourceRoots: ["app/src/main/java/com/x"])
         #expect(assigner.parts(forFile: "app/src/main/java/com/x/agent/cs/biz/A.java") == ["agent", "cs", "biz"])
         #expect(assigner.parts(forFile: "docs/readme.md") == nil)
         // 已经删掉的文件也要能定位：分支 diff 里的旧路径磁盘上不存在。
-        #expect(assigner.assign(file: "app/src/main/java/com/x/agent/cs/biz/Gone.java")?.moduleID == "module:agent/cs/biz")
+        let gone = assigner.assign(file: "app/src/main/java/com/x/agent/cs/biz/Gone.java")
+        #expect(gone?.moduleID == "module:agent/cs/biz")
     }
 
     // MARK: 索引
