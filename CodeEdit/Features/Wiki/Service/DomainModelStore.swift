@@ -209,6 +209,11 @@ final class DomainModelStore: ObservableObject {
         revision &+= 1
     }
 
+    func adopt(package key: String, title: String, into domainID: String) {
+        graph.adopt(package: key, title: title, into: domainID)
+        revision &+= 1
+    }
+
     /// 编辑后立刻落盘（仅锁定的模型）。未锁定时改动只存在内存里。
     func persistIfLocked() {
         guard isLocked else { return }

@@ -314,6 +314,29 @@ struct MindGraph: Sendable {
         rebuildIndex()
     }
 
+    /// 把一个包认领成某个域下的模块。已有同名节点时改挂过去，没有就新建。
+    ///
+    /// 结构地图里「新包待归属」点了归属之后走这里：包本身在模型里还没有节点，
+    /// 所以不能用 `move`。
+    mutating func adopt(package key: String, title: String, into domainID: String) {
+        guard nodesByID[domainID] != nil else { return }
+        let id = "module:" + key
+        if nodesByID[id] != nil {
+            move(id, toParent: domainID)
+            return
+        }
+        var node = MindNode(id: id, title: title, kind: .module)
+        node.parentID = domainID
+        node.packages = [key]
+        node.isManual = true
+        nodes.append(node)
+        if var parent = nodesByID[domainID] {
+            parent.childIDs.append(id)
+            update(parent)
+        }
+        rebuildIndex()
+    }
+
     /// 指定负责人。传 nil 清空人工值，回落到 git 统计结果。
     mutating func assignOwner(_ id: String, to name: String?) {
         guard var node = nodesByID[id] else { return }
