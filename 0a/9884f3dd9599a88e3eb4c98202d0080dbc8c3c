@@ -1,0 +1,25 @@
+scripts/package-dev-spm.sh
+  s_2a634cebefba24::t_d47ee16882ab0e 1-27,29-45,47-50,53-139,141-148,152-169,172-302,323-325,328-329,333-359,361,363-425,435-454
+  s_2a634cebefba24::t_d551cde158041b 326-327,330-332
+  s_2a634cebefba24::t_2533efbd5bf285 28,46,51-52,149-151,170-171,303-322,426-434
+  s_2a634cebefba24::t_d5c3b5e4b45d9c 360,362
+  s_2a634cebefba24::t_fc68e1c48e34e2 140
+README.md
+  s_2a634cebefba24::t_e43aa2def526ca 155-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "0a9884f3dd9599a88e3eb4c98202d0080dbc8c3c",
+  "prompts": {},
+  "sessions": {
+    "s_2a634cebefba24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8abc42ef-5ae5-4718-a491-76f0985f2e7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "unknown"
+    }
+  }
+}
