@@ -1,0 +1,24 @@
+CodeEditTests/Features/Wiki/StructureDiffTests.swift
+  s_2a634cebefba24::t_88fa94f5f4afda 313-360
+CodeEditTests/Features/Wiki/StructureIndexTests.swift
+  s_2a634cebefba24::t_88fa94f5f4afda 101,160-178,186
+  s_2a634cebefba24::t_d9160fd2cb80ec 97-100,159,185
+CodeEdit/Features/Wiki/Views/Structure/StructureMapView.swift
+  s_2a634cebefba24::t_88fa94f5f4afda 19,110-115,166-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "f638b024f2e470f429e60b0275b315717804f0f3",
+  "prompts": {},
+  "sessions": {
+    "s_2a634cebefba24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8abc42ef-5ae5-4718-a491-76f0985f2e7e",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "unknown"
+    }
+  }
+}
