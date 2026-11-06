@@ -22,7 +22,7 @@ extension WikiWindowView {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 236)
+                .frame(width: 204)
 
                 if centerMode == .mindmap {
                     Picker("", selection: $activeSpec) {
@@ -39,7 +39,8 @@ extension WikiWindowView {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 124)
+                    // 页签多了一个之后，中间栏最窄时放不下固定宽度：让视角菜单先让出空间。
+                    .frame(minWidth: 84, idealWidth: 118, maxWidth: 124)
                     .help("建模可编辑；其余视角是同一份模型的只读投影")
                 }
 
@@ -47,6 +48,8 @@ extension WikiWindowView {
 
                 if centerMode == .mindmap {
                     mindMapActions
+                        .fixedSize()
+                        .layoutPriority(1)
                 } else if centerMode == .architecture {
                     if buildingArchitecture {
                         ProgressView().scaleEffect(0.4).frame(width: 14, height: 14)

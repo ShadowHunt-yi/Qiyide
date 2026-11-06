@@ -9,14 +9,15 @@
 //  不是按技术层分包。把层当行，这些模块没有格子可落，格子里就只剩一个点。
 //  所以这里让模块自己当主角：域下面列的就是包名，看一眼知道里面有什么。
 //
-//  每张卡片最多列 `visibleRows` 行。排序固定按类数降序，不把「有改动的」顶到前面——
-//  位置不变，人才能靠空间记忆找东西。
+//  每张卡片最多列 `visibleRows` 行：有改动的模块必须出现，剩下的名额按类数补。
+//  排序固定按类数降序，不把「有改动的」顶到前面——位置不变，人才能靠空间记忆找东西。
 //
 
 import SwiftUI
 
 struct StructureOverviewView: View {
     let index: StructureIndex
+    var overlay: StructureOverlay?
     let onNavigate: ([String]) -> Void
 
     /// 每张域卡片最多显示几个模块。其余折叠成「另有 N 个模块」。
@@ -25,13 +26,10 @@ struct StructureOverviewView: View {
     private let columns = [GridItem(.adaptive(minimum: 210, maximum: 340), spacing: 10, alignment: .top)]
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                ForEach(index.domains) { domain in
-                    StructureDomainCard(domain: domain, onNavigate: onNavigate)
-                }
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+            ForEach(index.domains) { domain in
+                StructureDomainCard(domain: domain, overlay: overlay, onNavigate: onNavigate)
             }
-            .padding(12)
         }
     }
 }
@@ -39,47 +37,51 @@ struct StructureOverviewView: View {
 /// 一个域的卡片：标题行进入域，模块行直接进入模块。
 struct StructureDomainCard: View {
     let domain: StructureDomain
+    var overlay: StructureOverlay?
     let onNavigate: ([String]) -> Void
 
+    /// 要显示的模块。叠加分支增量时，有改动的一个都不能少。
     private var visible: [StructureModule] {
-        Array(domain.modules.prefix(StructureOverviewView.visibleRows))
+        let limit = StructureOverviewView.visibleRows
+        guard let overlay else { return Array(domain.modules.prefix(limit)) }
+        var keep = Set(domain.modules.filter { !overlay.diff.marks(module: $0.id).isEmpty }.map(\.id))
+        for module in domain.modules {
+            if keep.count >= limit { break }
+            keep.insert(module.id)
+        }
+        return domain.modules.filter { keep.contains($0.id) }
     }
 
-    private var hiddenCount: Int {
-        domain.modules.count - visible.count
+    private var marks: StructureMarks {
+        overlay?.diff.marks(domain: domain.id) ?? StructureMarks()
+    }
+
+    private var removed: [StructureRemovedModule] {
+        overlay?.diff.removedModules(domain: domain.id) ?? []
     }
 
     var body: some View {
+        let rows = visible
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(visible) { module in
-                    StructureRowButton(help: module.key) {
-                        onNavigate([domain.id, module.id])
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(module.title)
-                                .font(.system(size: 11.5, design: .monospaced))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer(minLength: 4)
-                            Text("\(module.classCount)")
-                                .font(.system(size: 10).monospacedDigit())
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
+                ForEach(rows) { module in
+                    moduleRow(module)
                 }
-                if hiddenCount > 0 {
+                ForEach(removed) { module in
+                    removedRow(module)
+                }
+                if domain.modules.count > rows.count {
                     StructureRowButton(help: "查看「\(domain.title)」的全部模块") {
                         onNavigate([domain.id])
                     } label: {
-                        Text("另有 \(hiddenCount) 个模块")
+                        Text("另有 \(domain.modules.count - rows.count) 个模块")
                             .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
                     }
                 }
-                if domain.modules.isEmpty {
+                if domain.modules.isEmpty && removed.isEmpty {
                     Text("仓库里没有找到这个域的代码")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
@@ -90,10 +92,59 @@ struct StructureDomainCard: View {
             .padding(.vertical, 4)
         }
         .structureCard()
+        // 叠加增量时，没动过的域压暗但不隐藏：位置还在，注意力让给有变化的。
+        .opacity(overlay != nil && marks.isEmpty && removed.isEmpty ? 0.62 : 1)
+    }
+
+    private func moduleRow(_ module: StructureModule) -> some View {
+        let moduleMarks = overlay?.diff.marks(module: module.id) ?? StructureMarks()
+        let pending = overlay?.pending([domain.id, module.id]) ?? 0
+        let isQuiet = overlay != nil && moduleMarks.isEmpty
+        return StructureRowButton(help: module.key) {
+            onNavigate([domain.id, module.id])
+        } label: {
+            HStack(spacing: 6) {
+                Text(module.title)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(isQuiet ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if overlay?.diff.newModules.contains(module.id) == true {
+                    WikiChip(text: "新", color: StructurePalette.added)
+                }
+                Spacer(minLength: 4)
+                StructureMarksLabel(marks: moduleMarks)
+                if pending > 0 {
+                    StructurePendingBadge(count: pending)
+                }
+                Text("\(module.classCount)")
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// 整个模块被删光了：索引里已经没有它，这里补一行，不然这次删除在地图上就无影无踪。
+    private func removedRow(_ module: StructureRemovedModule) -> some View {
+        HStack(spacing: 6) {
+            Text(module.title)
+                .font(.system(size: 11.5, design: .monospaced))
+                .strikethrough()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text("已删除")
+                .font(.system(size: 10))
+                .foregroundStyle(StructurePalette.deleted)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 3.5)
+        .help(module.key)
     }
 
     private var header: some View {
-        StructureRowButton(help: "进入「\(domain.title)」") {
+        let pending = overlay?.pending([domain.id]) ?? 0
+        return StructureRowButton(help: "进入「\(domain.title)」") {
             onNavigate([domain.id])
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -105,6 +156,9 @@ struct StructureDomainCard: View {
                         if let tag = domain.kind.tag {
                             WikiChip(text: tag)
                         }
+                        if pending > 0 {
+                            StructurePendingBadge(count: pending)
+                        }
                     }
                     if !domain.keys.isEmpty {
                         Text(domain.keys.joined(separator: ", "))
@@ -115,9 +169,12 @@ struct StructureDomainCard: View {
                     }
                 }
                 Spacer(minLength: 4)
-                Text("\(domain.classCount) 类")
-                    .font(.system(size: 10.5).monospacedDigit())
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(domain.classCount) 类")
+                        .font(.system(size: 10.5).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    StructureMarksLabel(marks: marks)
+                }
             }
             .padding(.vertical, 3)
         }

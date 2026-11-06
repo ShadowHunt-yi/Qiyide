@@ -74,3 +74,53 @@ struct StructureSizeBar: View {
         .frame(height: 3)
     }
 }
+
+// MARK: - 分支增量的标记
+
+/// 颜色只表示状态，不表示域。橙色只留给「等你确认」。
+enum StructurePalette {
+    static let added = Color.green
+    static let modified = Color.blue
+    static let deleted = Color.red
+    static let pending = Color.orange
+
+    static func color(_ kind: StructureFileChange.Kind) -> Color {
+        switch kind {
+        case .added: return added
+        case .modified: return modified
+        case .deleted: return deleted
+        }
+    }
+}
+
+/// 叠在地图上的那一层。视图只关心两件事：这个节点上有什么改动、还有几条待确认没决定。
+struct StructureOverlay {
+    let diff: StructureDiff
+    /// 还没做决定的待确认。
+    let openAsks: [StructureAsk]
+
+    func pending(_ path: [String]) -> Int {
+        openAsks.filter { $0.isInside(path) }.count
+    }
+}
+
+/// `+2 ~3 −1`。没有改动时什么都不画。
+struct StructureMarksLabel: View {
+    let marks: StructureMarks
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if marks.added > 0 {
+                Text("+\(marks.added)").foregroundStyle(StructurePalette.added)
+            }
+            if marks.modified > 0 {
+                Text("~\(marks.modified)").foregroundStyle(StructurePalette.modified)
+            }
+            if marks.deleted > 0 {
+                Text("−\(marks.deleted)").foregroundStyle(StructurePalette.deleted)
+            }
+        }
+        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+        .accessibilityLabel("新增 \(marks.added)，变更 \(marks.modified)，删除 \(marks.deleted)")
+    }
+}

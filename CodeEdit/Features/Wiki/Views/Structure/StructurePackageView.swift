@@ -17,6 +17,7 @@ struct StructurePackageView: View {
     /// 相对模块的子路径。空数组表示模块本身。
     let subpath: [String]
     let contents: StructureContents
+    var overlay: StructureOverlay?
     /// 参数是完整路径 `[域, 模块, 子包…]`。
     let onNavigate: ([String]) -> Void
     let onOpenFile: (String) -> Void
@@ -27,29 +28,46 @@ struct StructurePackageView: View {
         max(contents.packages.map(\.classCount).max() ?? 1, 1)
     }
 
+    /// 恰好落在这一级的文件改动，按路径查。
+    private var changes: [String: StructureFileChange] {
+        guard let overlay else { return [:] }
+        var result: [String: StructureFileChange] = [:]
+        for change in overlay.diff.changes(module: module.id, at: subpath) {
+            result[change.path] = change
+        }
+        return result
+    }
+
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                header
-                if !contents.packages.isEmpty {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-                        ForEach(contents.packages) { package in
-                            StructureTile(
-                                title: package.name,
-                                classCount: package.classCount,
-                                ratio: Double(package.classCount) / Double(largest),
-                                help: ([module.key] + package.subpath).joined(separator: "/")
-                            ) {
-                                onNavigate([domain.id, module.id] + package.subpath)
-                            }
-                        }
+        let changes = self.changes
+        let deleted = changes.values.filter { $0.kind == .deleted }.sorted { $0.path < $1.path }
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            if !contents.packages.isEmpty {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+                    ForEach(contents.packages) { package in
+                        packageTile(package)
                     }
                 }
-                if !contents.files.isEmpty {
-                    fileList
-                }
             }
-            .padding(12)
+            if !contents.files.isEmpty || !deleted.isEmpty {
+                fileList(changes: changes, deleted: deleted)
+            }
+        }
+    }
+
+    private func packageTile(_ package: StructurePackage) -> some View {
+        let path = [domain.id, module.id] + package.subpath
+        return StructureTile(
+            title: package.name,
+            classCount: package.classCount,
+            ratio: Double(package.classCount) / Double(largest),
+            help: ([module.key] + package.subpath).joined(separator: "/"),
+            marks: overlay?.diff.marks(module: module.id, under: package.subpath) ?? StructureMarks(),
+            pending: overlay?.pending(path) ?? 0,
+            isQuiet: overlay != nil
+        ) {
+            onNavigate(path)
         }
     }
 
@@ -73,6 +91,9 @@ struct StructurePackageView: View {
                 Text("\(contents.classCount) 个类")
                     .font(.system(size: 10.5).monospacedDigit())
                     .foregroundStyle(.secondary)
+                if subpath.isEmpty, overlay?.diff.newModules.contains(module.id) == true {
+                    WikiChip(text: "本分支新增", color: StructurePalette.added)
+                }
             }
             Text(fullKey)
                 .font(.system(size: 10.5, design: .monospaced))
@@ -86,7 +107,7 @@ struct StructurePackageView: View {
         }
     }
 
-    private var fileList: some View {
+    private func fileList(changes: [String: StructureFileChange], deleted: [StructureFileChange]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // 有子包时才需要这行小标题，把「这一级自己的文件」和上面的子包分开。
             if !contents.packages.isEmpty {
@@ -107,22 +128,57 @@ struct StructurePackageView: View {
                 StructureRowButton(help: file.path) {
                     onOpenFile(file.path)
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                        Text(file.fileName)
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let label = contents.rootLabels[file.path], !label.isEmpty {
-                            WikiChip(text: label)
-                        }
-                    }
+                    fileLabel(
+                        name: file.fileName,
+                        change: changes[file.path],
+                        origin: contents.rootLabels[file.path]
+                    )
                 }
+            }
+            // 删掉的文件磁盘上已经没有了，点不开，但要让人看见它被删了。
+            ForEach(deleted) { change in
+                fileLabel(name: change.fileName, change: change, origin: nil)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3.5)
+                    .help(change.counterpart.map { "移到了 \($0)" } ?? change.path)
             }
         }
         .padding(.vertical, contents.packages.isEmpty ? 4 : 0)
         .structureCard()
+    }
+
+    private func fileLabel(name: String, change: StructureFileChange?, origin: String?) -> some View {
+        HStack(spacing: 6) {
+            if overlay != nil {
+                // 固定宽度的标记列：有没有改动，文件名都从同一条竖线开始。
+                Text(change?.kind.sign ?? "")
+                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(change.map { StructurePalette.color($0.kind) } ?? .clear)
+                    .frame(width: 10)
+            }
+            Image(systemName: "doc.text")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            Text(name)
+                .font(.system(size: 11.5, design: .monospaced))
+                .strikethrough(change?.kind == .deleted)
+                .foregroundStyle(overlay != nil && change == nil ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let change {
+                ForEach(StructureAsk.Kind.allCases.filter(change.tags.contains), id: \.self) { kind in
+                    WikiChip(text: kind.title, color: StructurePalette.pending)
+                }
+                if change.counterpart != nil {
+                    WikiChip(text: change.kind == .deleted ? "已移走" : "移入")
+                }
+                if change.isUncommitted {
+                    WikiChip(text: "未提交")
+                }
+            }
+            if let origin, !origin.isEmpty {
+                WikiChip(text: origin)
+            }
+        }
     }
 }

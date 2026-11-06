@@ -64,10 +64,19 @@ enum StructureVerification {
             ))
 
             var failures = checkInvariants(index: index, packages: packages, root: root, graph: store.graph)
-            failures += checkModelAgreement(index: index, graph: store.graph)
+            failures += checkModelAgreement(index: index, graph: store.graph, isLocked: store.isLocked)
             printTable(index)
+            printFacts(index: index, root: root)
 
-            await renderLevels(index: index, store: store, root: root, output: output)
+            let options = StructureDiffBuilder.Options(
+                target: environment["QIYIDE_VERIFY_STRUCTURE_TARGET"],
+                includeWorkingTree: environment["QIYIDE_VERIFY_STRUCTURE_COMMITTED_ONLY"] != "1",
+                scope: Set((environment["QIYIDE_VERIFY_STRUCTURE_SCOPE"] ?? "")
+                    .split(separator: ",").map(String.init))
+            )
+            let diff = printDiff(index: index, root: root, options: options)
+
+            await renderLevels(index: index, diff: diff, store: store, root: root, output: output)
 
             if failures == 0 {
                 log("验证结束：全部通过")
@@ -113,7 +122,7 @@ enum StructureVerification {
     ///
     /// 对不上有两种情况：模型是旧的（代码之后变了），或者识别本身算错了。
     /// 现场识别时必须完全一致；用锁定模型时只提示，不算失败。
-    private static func checkModelAgreement(index: StructureIndex, graph: MindGraph) -> Int {
+    private static func checkModelAgreement(index: StructureIndex, graph: MindGraph, isLocked: Bool) -> Int {
         log("—— 模型与扫描对账 ——")
         var mismatches: [String] = []
         for domain in graph.domains {
@@ -142,7 +151,8 @@ enum StructureVerification {
         }
         for line in mismatches.prefix(12) { log("不一致 \(line)") }
         if mismatches.count > 12 { log("……共 \(mismatches.count) 处") }
-        return graph.baseCommit.isEmpty ? 0 : mismatches.count
+        // 锁定模型是过去某一刻的快照，代码之后变了是正常的：只提示。
+        return isLocked ? 0 : mismatches.count
     }
 
     private static func signature(_ index: StructureIndex) -> [String] {
@@ -165,44 +175,189 @@ enum StructureVerification {
         }
     }
 
+    // MARK: 依赖事实
+
+    /// 依赖图的精度：有多少 import 指向仓库自己的包却对不到文件。
+    ///
+    /// 这个比例是「依赖变化」能不能信的前提。它高了，后面报出来的新增依赖就可能是假的。
+    private static func printFacts(index: StructureIndex, root: URL) {
+        log("—— 依赖事实 ——")
+        let started = Date()
+        let paths = index.domains.flatMap { $0.modules.flatMap { $0.files.map(\.path) } }
+        let facts = StructureFacts.scan(root: root, paths: paths)
+        let total = facts.references.count + facts.dangling.count
+        log(String(
+            format: "扫描 %d 个文件 %.0fms：仓库内引用 %d 条，未解析 %d 条（%.1f%%）",
+            facts.scannedFiles,
+            Date().timeIntervalSince(started) * 1000,
+            facts.references.count,
+            facts.dangling.count,
+            total == 0 ? 0 : Double(facts.dangling.count) * 100 / Double(total)
+        ))
+        for item in facts.dangling.prefix(5) {
+            log("   未解析 \(item.name)  ← \((item.from as NSString).lastPathComponent):\(item.line)")
+        }
+
+        // 域到域的引用数：全仓那一级画的就是它。
+        var pairs: [String: Int] = [:]
+        for reference in facts.references {
+            guard let from = index.moduleID(forFile: reference.from).flatMap({ index.domain(ofModule: $0) }),
+                  let to = index.moduleID(forFile: reference.to).flatMap({ index.domain(ofModule: $0) }),
+                  from.id != to.id else { continue }
+            pairs["\(from.title) → \(to.title)", default: 0] += 1
+        }
+        for (pair, count) in pairs.sorted(by: { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }) {
+            log("   \(pair)  \(count)")
+        }
+    }
+
+    // MARK: 分支 diff
+
+    @discardableResult
+    private static func printDiff(
+        index: StructureIndex,
+        root: URL,
+        options: StructureDiffBuilder.Options
+    ) -> StructureDiff? {
+        log("—— 分支 diff ——")
+        let started = Date()
+        switch StructureDiffBuilder.build(root: root, index: index, options: options) {
+        case .failure(let failure):
+            log("跳过：\(failure.message)")
+            return nil
+        case .success(let diff):
+            log(String(
+                format: "%@ → %@（分叉点 %@，%d 个提交%@），计算 %.0fms",
+                diff.headName,
+                diff.targetName,
+                diff.baseCommit,
+                diff.commitCount,
+                diff.includesWorkingTree ? "，含未提交" : "",
+                Date().timeIntervalSince(started) * 1000
+            ))
+            log("   耗时：" + diff.timings
+                .map { String(format: "%@ %.0fms", $0.stage, $0.milliseconds) }
+                .joined(separator: " · "))
+            log("文件 \(diff.fileCount) 个：源码 \(diff.changes.count)，测试 \(diff.testFiles)，"
+                + "文档 \(diff.documentFiles)，其他 \(diff.otherFiles)；模块内实现 \(diff.innerChanges.count)")
+            for domain in index.domains where !diff.marks(domain: domain.id).isEmpty {
+                let marks = diff.marks(domain: domain.id)
+                let modules = domain.modules
+                    .filter { !diff.marks(module: $0.id).isEmpty }
+                    .map { module -> String in
+                        let mark = diff.marks(module: module.id)
+                        let fresh = diff.newModules.contains(module.id) ? "（新）" : ""
+                        return "\(module.title)\(fresh) +\(mark.added) ~\(mark.modified) −\(mark.deleted)"
+                    }
+                let gone = diff.removedModules(domain: domain.id).map { "\($0.title)（已删光）" }
+                log("   [\(domain.title)] +\(marks.added) ~\(marks.modified) −\(marks.deleted)："
+                    + (modules + gone).joined(separator: "，"))
+            }
+            for edge in diff.edges {
+                let sign = edge.kind == .added ? "+" : "−"
+                let cross = edge.crossesDomains ? (edge.changesDomainPair ? "跨域·新的域对" : "跨域") : "域内"
+                log("   依赖 \(sign) \(edge.fromModule) → \(edge.toModule)（\(cross)，\(edge.references.count) 处）")
+            }
+            log("待确认 \(diff.asks.count) 条")
+            for ask in diff.asks {
+                log("   [\(ask.kind.title)] \(ask.title)")
+                log("       \(ask.detail)")
+                for line in ask.evidence.prefix(4) {
+                    let place = line.line > 0 ? "\((line.file as NSString).lastPathComponent):\(line.line)" : ""
+                    log("       \(line.sign) \(line.text)  \(place)")
+                }
+            }
+            return diff
+        }
+    }
+
     // MARK: 渲染
 
-    /// 把三级各渲染一张。宽度取 620：三栏窗口里中间栏的常见宽度，在这个宽度下不挤才算过。
+    /// 每一级各渲染一张；有分支增量时，再把叠加后的几种状态各渲染一张。
+    ///
+    /// 宽度取 620：三栏窗口里中间栏的常见宽度，在这个宽度下不挤才算过。
     @MainActor
     private static func renderLevels(
         index: StructureIndex,
+        diff: StructureDiff?,
         store: DomainModelStore,
         root: URL,
         output: URL
     ) async {
         log("—— 截图 ——")
-        var cases: [(name: String, path: [String])] = [("1-overview", [])]
+        struct Shot {
+            var name: String
+            var path: [String]
+            var diff: StructureDiff?
+            var decisions: [String: StructureDecision] = [:]
+            var height: CGFloat = 720
+        }
+        var shots = [Shot(name: "1-overview", path: [])]
         if let largest = index.modeledDomains.first {
-            cases.append(("2-domain", [largest.id]))
+            shots.append(Shot(name: "2-domain", path: [largest.id]))
             // 选一个带子包的模块，再往下走一层：子包方块和文件清单都要看得到。
             let module = largest.modules.first { !index.contents(of: $0, at: []).packages.isEmpty }
                 ?? largest.modules.first
             if let module {
-                cases.append(("3-module", [largest.id, module.id]))
+                shots.append(Shot(name: "3-module", path: [largest.id, module.id]))
                 if let package = index.contents(of: module, at: []).packages.first {
-                    cases.append(("4-package", [largest.id, module.id] + package.subpath))
+                    shots.append(Shot(name: "4-package", path: [largest.id, module.id] + package.subpath))
                 }
             }
         }
-        for item in cases {
+
+        if let diff, !diff.changes.isEmpty {
+            shots.append(Shot(name: "6-diff-overview", path: [], diff: diff, height: 1500))
+            // 待确认最多的域，以及它里面改动最多的模块：标记、徽标、文件标签都集中在这两张上。
+            let busiest = index.domains.max {
+                diff.asks(inside: [$0.id]).count < diff.asks(inside: [$1.id]).count
+            }
+            if let busiest {
+                shots.append(Shot(name: "7-diff-domain", path: [busiest.id], diff: diff, height: 1300))
+                let module = busiest.modules.max {
+                    diff.marks(module: $0.id).total < diff.marks(module: $1.id).total
+                }
+                if let module {
+                    let contents = index.contents(of: module, at: [])
+                    let deeper = contents.packages.first {
+                        !diff.marks(module: module.id, under: $0.subpath).isEmpty
+                    }
+                    shots.append(Shot(
+                        name: "8-diff-module",
+                        path: [busiest.id, module.id] + (contents.files.isEmpty ? deeper?.subpath ?? [] : []),
+                        diff: diff,
+                        height: 1100
+                    ))
+                }
+            }
+            // 做过几个决定之后的样子：已决定的收成一行，违规的生成修改要求。
+            var decisions: [String: StructureDecision] = [:]
+            for (offset, ask) in diff.asks.enumerated() where ask.adoption == nil {
+                if offset % 2 == 0 { decisions[ask.id] = .accepted } else { decisions[ask.id] = .violation }
+            }
+            shots.append(Shot(name: "9-diff-decided", path: [], diff: diff, decisions: decisions, height: 1300))
+        }
+
+        for shot in shots {
             let view = StructureMapView(
                 store: store,
                 root: root,
                 selectedDomain: .constant(nil),
                 onOpenFile: { _ in },
                 preloaded: index,
-                initialPath: item.path
+                preloadedDiff: shot.diff,
+                preloadedDecisions: shot.decisions,
+                initialPath: shot.path
             )
             .background(Color(nsColor: .textBackgroundColor))
-            await snapshot(view, size: NSSize(width: 620, height: 720), to: output.appending(path: "\(item.name).png"))
+            await snapshot(
+                view,
+                size: NSSize(width: 620, height: shot.height),
+                to: output.appending(path: "\(shot.name).png")
+            )
         }
 
-        // 整窗：检查「结构」页签放进三栏之后的比例。
+        // 整窗：检查「结构」页签放进三栏之后的比例。它自己加载数据，所以多等一会儿。
         let window = WikiWindowView(
             root: root,
             workspace: nil,
@@ -210,17 +365,27 @@ enum StructureVerification {
             initiallySelectedDomain: nil,
             initialCenterMode: .structure
         )
-        await snapshot(window, size: NSSize(width: 1280, height: 760), to: output.appending(path: "5-window.png"))
+        await snapshot(
+            window,
+            size: NSSize(width: 1280, height: 820),
+            to: output.appending(path: "5-window.png"),
+            settle: 4_000_000_000
+        )
     }
 
     /// 挂到屏幕外的真实窗口上再截图。
     ///
     /// 不用 `ImageRenderer`：它画不了 `Button`、`Picker` 这类原生控件，会整块替换成占位符。
     @MainActor
-    static func snapshot<Content: View>(_ view: Content, size: NSSize, to url: URL) async {
+    static func snapshot<Content: View>(
+        _ view: Content,
+        size: NSSize,
+        to url: URL,
+        settle: UInt64 = 1_200_000_000
+    ) async {
         let hosting = NSHostingView(rootView: view)
         hosting.frame = NSRect(origin: .zero, size: size)
-        let window = NSWindow(
+        let window = OffscreenWindow(
             contentRect: NSRect(origin: NSPoint(x: -8000, y: -8000), size: size),
             styleMask: [.titled, .resizable],
             backing: .buffered,
@@ -231,7 +396,7 @@ enum StructureVerification {
         hosting.layoutSubtreeIfNeeded()
 
         // SwiftUI 首次布局与异步加载都要等几轮 runloop，太快截图会得到空白。
-        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        try? await Task.sleep(nanoseconds: settle)
 
         defer { window.orderOut(nil) }
         guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
@@ -255,5 +420,14 @@ enum StructureVerification {
         print("[verify][structure] \(text)")
         fflush(stdout)
     }
+}
+
+/// 只用来截图的窗口：不当键盘焦点窗口。
+///
+/// 普通窗口即使放在屏幕外，也可能成为应用的 key window。那样人这时候敲的键
+/// 会落到它上面——实测截图里的页签被方向键切走过，人那边的输入也丢了。
+private final class OffscreenWindow: NSWindow {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }
 #endif
