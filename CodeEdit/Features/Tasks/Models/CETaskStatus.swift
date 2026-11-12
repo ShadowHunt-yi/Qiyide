@@ -19,6 +19,9 @@ enum CETaskStatus {
     // Processes finished without an error
     case finished
 
+    var canSuspend: Bool { self == .running }
+    var canResume: Bool { self == .stopped }
+
     var color: Color {
         switch self {
         case .notRunning: return Color.gray

@@ -23,9 +23,10 @@
 #
 # 用法：
 #   scripts/package-dev-spm.sh            # 增量编译 + 组装
+#   scripts/package-dev-spm.sh --build-only # 只编译，不组装、不关闭或启动应用
 #   scripts/package-dev-spm.sh --run      # 组装后启动
 #   scripts/package-dev-spm.sh --no-build # 只重新组装（已编译过）
-#   scripts/package-dev-spm.sh --test     # 对着完整 App 的模块跑 CodeEditTests/Features/Wiki
+#   scripts/package-dev-spm.sh --test     # 对完整 App 模块跑 Wiki 与主题加载 Swift Testing 回归
 #
 # 需要走代理时先在外部导出 https_proxy / http_proxy。
 
@@ -44,15 +45,22 @@ LANGUAGES_URL="${CODEEDIT_LANGUAGES_URL:-https://github.com/ShadowHunt-yi/CodeEd
 DO_BUILD=1
 DO_RUN=0
 DO_TEST=0
+DO_ASSEMBLE=1
 for arg in "$@"; do
     case "$arg" in
         --no-build) DO_BUILD=0 ;;
+        --build-only) DO_ASSEMBLE=0 ;;
         --run)      DO_RUN=1 ;;
         --test)     DO_TEST=1 ;;
         -h|--help)  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)          echo "❌ 未知参数：$arg（用 --help 查看用法）"; exit 1 ;;
     esac
 done
+
+if [ "$DO_ASSEMBLE" = "0" ] && { [ "$DO_BUILD" = "0" ] || [ "$DO_RUN" = "1" ]; }; then
+    echo "❌ --build-only 不能与 --no-build 或 --run 同用"
+    exit 1
+fi
 
 # SwiftLint 插件会对每个声明它的包运行；命令行构建不需要，而且它要下载并执行二进制。
 export DISABLE_SWIFTLINT=1
@@ -147,7 +155,7 @@ lines += [
     '            path: "Sources/CodeEdit",',
     '            swiftSettings: [.define("DEBUG")]',
     '        ),',
-    # 只带知识库的测试：它们用 Swift Testing。其余测试用 XCTest，命令行工具里没有。
+    # 带知识库与主题加载的 Swift Testing 回归；其余 XCTest 不在此脚本的覆盖范围。
     '        .testTarget(name: "CodeEditTests", dependencies: ["CodeEdit"], path: "Tests/CodeEditTests")',
     '    ],',
     '    swiftLanguageVersions: [.v5]',
@@ -169,6 +177,8 @@ sync_sources() {
         "$REPO_ROOT/CodeEdit/" "$PKG/Sources/CodeEdit/"
     mkdir -p "$PKG/Tests/CodeEditTests"
     rsync -a --delete "$REPO_ROOT/CodeEditTests/Features/Wiki/" "$PKG/Tests/CodeEditTests/"
+    mkdir -p "$PKG/Tests/CodeEditTests/Theme"
+    rsync -a --delete "$REPO_ROOT/CodeEditTests/Features/Theme/" "$PKG/Tests/CodeEditTests/Theme/"
 
     python3 - "$REPO_ROOT" "$PKG" "$DEPS" <<'PY'
 import json, os, re, sys
@@ -304,19 +314,24 @@ PY
 # scripts/verify/wiki-dev/run.sh test 跑的是「知识库 + 替身」的精简模块，这里才是真模块。
 run_tests() {
     cd "$PKG"
-    # Testing.framework 与它的宏插件不在默认搜索路径上（装了 Xcode 才会自动带上）。
     local clt="/Library/Developer/CommandLineTools"
     local frameworks="$clt/Library/Developer/Frameworks"
+    local flags=()
+    if [ -d "$frameworks/Testing.framework" ]; then
+        flags=(
+            -Xswiftc -F -Xswiftc "$frameworks"
+            -Xswiftc -plugin-path -Xswiftc "$clt/usr/lib/swift/host/plugins/testing"
+            -Xlinker -F -Xlinker "$frameworks"
+            -Xlinker -rpath -Xlinker "$frameworks"
+            -Xlinker -rpath -Xlinker "$clt/Library/Developer/usr/lib"
+        )
+    fi
     echo "==> swift test"
-    swift test --disable-sandbox --disable-xctest \
-        -Xswiftc -F -Xswiftc "$frameworks" \
-        -Xswiftc -plugin-path -Xswiftc "$clt/usr/lib/swift/host/plugins/testing" \
-        -Xlinker -F -Xlinker "$frameworks" \
-        -Xlinker -rpath -Xlinker "$frameworks" \
-        -Xlinker -rpath -Xlinker "$clt/Library/Developer/usr/lib" \
-        > "$WORK/test.log" 2>&1 || true
-    grep -E "✘|Test run with|error:" "$WORK/test.log" | sed -E 's|.*/Tests/CodeEditTests/||' | head -30
+    local result=0
+    swift test --disable-sandbox --disable-xctest ${flags[@]+"${flags[@]}"} > "$WORK/test.log" 2>&1 || result=$?
+    grep -E "✘|Test run with|error:" "$WORK/test.log" | sed -E 's|.*/Tests/CodeEditTests/||' | head -30 || true
     echo "    完整日志：$WORK/test.log"
+    if [ "$result" -ne 0 ]; then return "$result"; fi
     grep -q "Test run with .* passed" "$WORK/test.log"
 }
 
@@ -331,10 +346,12 @@ assemble_app() {
     local products
     products="$(cd "$PKG/.build/debug" && pwd -P)"
 
-    if pgrep -f "$DEV_NAME.app/Contents/MacOS/$DEV_NAME" >/dev/null 2>&1; then
-        echo "==> 关闭正在运行的 $DEV_NAME"
-        pkill -TERM -f "$DEV_NAME.app/Contents/MacOS/$DEV_NAME" 2>/dev/null || true
-        sleep 1
+    # 打包不应关闭用户应用，尤其不能按同名匹配 /Applications 下的安装版。
+    # 只有本次输出包自己正在运行时才拒绝替换，由用户决定何时退出。
+    if ps -axww -o comm= | sed 's/^[[:space:]]*//' | grep -Fx "$APP/Contents/MacOS/$DEV_NAME" >/dev/null; then
+        echo "❌ 开发输出包正在运行，未关闭或替换它：$APP"
+        echo "    请自行退出后重试，或使用 --build-only 仅校验编译。"
+        exit 1
     fi
     if [ -e "$APP" ]; then
         # 不用 rm -rf：整包文件多，批量删除会触发安全检查。挪走，由系统回收。
@@ -345,6 +362,13 @@ assemble_app() {
     local contents="$APP/Contents"
     mkdir -p "$contents/MacOS" "$contents/Resources" "$contents/Frameworks"
     cp "$products/CodeEdit" "$contents/MacOS/$DEV_NAME"
+
+    # DefaultThemes 在仓库根目录（不是 CodeEdit/），Xcode 用蓝色文件夹单独复制；必须保持目录名。
+    if [ ! -d "$REPO_ROOT/DefaultThemes" ]; then
+        echo "❌ 缺少仓库根目录 DefaultThemes，不能交付会导致空主题崩溃的包"
+        return 1
+    fi
+    cp -R "$REPO_ROOT/DefaultThemes" "$contents/Resources/DefaultThemes"
 
     # 资源：Xcode 把同步目录里的非源码文件平铺进 Resources，这里照做；.lproj 保持目录结构。
     find "$REPO_ROOT/CodeEdit" -type d -name '*.lproj' | while read -r lproj; do
@@ -364,6 +388,7 @@ assemble_app() {
 
     copy_catalog_assets "$contents/Resources"
     write_info_plist "$contents/Info.plist"
+    python3 "$REPO_ROOT/scripts/verify/verify-dev-themes.py" "$APP"
 
     xattr -cr "$APP" 2>/dev/null || true
     codesign --force --deep --sign - "$APP" 2>&1 | sed 's/^/    /'
@@ -438,6 +463,10 @@ if [ "$DO_BUILD" = "1" ]; then
     generate_manifest
     sync_sources
     build_app
+fi
+if [ "$DO_ASSEMBLE" = "0" ]; then
+    echo "✅ 完整 App 编译通过；未组装、关闭或启动应用。"
+    exit 0
 fi
 assemble_app
 

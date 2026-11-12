@@ -2,7 +2,7 @@
 //  WikiWindow+Center.swift
 //  CodeEdit
 //
-//  中间栏：四种看法（导图 / 结构 / 图谱 / 架构）与它们的操作区。
+//  中间栏：当前视角的内容和局部操作。视角导航与任务状态留在窗口外层。
 //
 //  「哪个视图」和「这个视图能做什么操作」放在一起：
 //  分开写就会出现「切到架构模式还留着导图的按钮」这种事。
@@ -15,15 +15,6 @@ extension WikiWindowView {
     var centerPane: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Picker("", selection: $centerMode) {
-                    ForEach(CenterMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 204)
-
                 if centerMode == .mindmap {
                     Picker("", selection: $activeSpec) {
                         Text("建模").tag(ViewSpec?.none)
@@ -51,15 +42,20 @@ extension WikiWindowView {
                         .fixedSize()
                         .layoutPriority(1)
                 } else if centerMode == .architecture {
-                    if buildingArchitecture {
-                        ProgressView().scaleEffect(0.4).frame(width: 14, height: 14)
-                    } else {
-                        Button(store.architecture.isEmpty ? "生成架构视图" : "重建") {
-                            generateArchitecture()
-                        }
-                        .controlSize(.small)
-                        .help("扫代码建依赖图，让模型按依赖内聚划分域（约一分钟）")
+                    if !store.architecture.isEmpty {
+                        Text("重建时保留当前架构，新结果保存后再替换")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
+                    Menu {
+                        Button("生成架构视图") { generateArchitecture() }
+                        Button("仅静态分析") { generateArchitecture(mode: .staticOnly) }
+                    } label: {
+                        Text(buildingArchitecture ? "生成中…" : (store.architecture.isEmpty ? "生成架构视图" : "重新生成"))
+                    }
+                    .disabled(buildingArchitecture)
+                    .controlSize(.small)
+                    .help("分析源代码与依赖；必要时调用 AI，进度显示在上方任务条")
+                    Button("任务详情") { showsArchitectureTask = true }.controlSize(.small)
                 }
             }
             .padding(.horizontal, 10)
@@ -68,6 +64,13 @@ extension WikiWindowView {
             Divider()
 
             switch centerMode {
+            case .knowledge:
+                WikiKnowledgeOverview(
+                    store: store, entries: filteredEntries,
+                    onSelect: { selection = $0 },
+                    onCreateRule: { create(type: .rule) },
+                    onShowContext: { showKnowledgeContext = true }
+                )
             case .mindmap:
                 MindMapView(
                     store: domains,
@@ -81,19 +84,34 @@ extension WikiWindowView {
                     store: domains,
                     root: store.root,
                     selectedDomain: mindMapSelection,
-                    onOpenFile: openSource
+                    onOpenFile: openSource,
+                    knowledgeEntries: store.entries,
+                    knowledgeReport: store.knowledgeReport,
+                    onSelectKnowledge: { selection = $0 }
                 )
             case .architecture:
-                WikiArchitectureView(architecture: store.architecture)
+                if let error = store.architectureReadError {
+                    HStack(alignment: .top, spacing: 10) {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.system(size: 12)).foregroundStyle(.orange).textSelection(.enabled)
+                        Spacer()
+                        Button("重试读取") { Task { await store.reload() } }.controlSize(.small)
+                    }.padding(12)
+                }
+                if store.architecture.isEmpty {
+                    WikiArchitectureTaskContent(
+                        snapshot: architectureTask.snapshot,
+                        canRetrySave: architectureTask.canRetrySave,
+                        onStart: { generateArchitecture() },
+                        onStatic: { generateArchitecture(mode: .staticOnly) },
+                        onRetry: { architectureTask.retry() },
+                        onSettings: openArchitectureSettings
+                    )
+                } else {
+                    WikiArchitectureView(architecture: store.architecture, selection: $selectedArchitectureDomain)
+                }
             case .graph:
                 WikiGraphView(graph: store.graph, selection: $selection)
-            }
-        }
-        .onAppear {
-            // 没有领域模型但有架构视图时先给全局；有模型就停在导图——
-            // 建模是这条流水线的第一步，不该藏在二级入口里。
-            if domains.graph.isEmpty && !store.architecture.isEmpty {
-                centerMode = .architecture
             }
         }
     }
@@ -163,40 +181,9 @@ extension WikiWindowView {
         }
     }
 
-    func generateArchitecture() {
-        guard !buildingArchitecture else { return }
-        buildingArchitecture = true
-        architectureError = nil
-        let root = store.root
-        Task {
-            do {
-                _ = try await WikiArchitectureBuilder.build(root: root)
-                await store.reload()
-                centerMode = .architecture
-            } catch {
-                architectureError = "架构划分失败：\(error.localizedDescription)"
-            }
-            buildingArchitecture = false
-        }
+    func generateArchitecture(mode: WikiArchitectureMode = .automatic) {
+        dismissedArchitectureTask = nil
+        if !architectureTask.start(mode: mode) { showsArchitectureTask = true }
     }
 
-    var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "circle.hexagongrid")
-                .font(.system(size: 30))
-                .foregroundStyle(.tertiary)
-            Text("还没有知识条目")
-                .font(.system(size: 13, weight: .medium))
-            Text("知识存在仓库的 .qiyide/wiki/ 下，随仓库一起提交与 review。")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Menu("新建第一条") {
-                ForEach(WikiEntryType.allCases) { type in
-                    Button(type.title) { create(type: type) }
-                }
-            }
-            .fixedSize()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }

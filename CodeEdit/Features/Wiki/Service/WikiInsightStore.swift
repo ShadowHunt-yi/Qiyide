@@ -1,115 +1,102 @@
-//
-//  WikiInsightStore.swift
-//  CodeEdit
-//
-//  整仓建档的「文件理解」持久层。
-//
-//  为什么需要它：
-//  第一版把 `insights` 写成 run() 的局部变量，轮末就丢了。后果有两个，
-//  而且都很贵：一是下一轮把上轮读过的文件重读重付费；二是跨轮无法增量更新，
-//  只知道「这个文件变过」，不知道「它原来写了什么」，只能整模块重来。
-//
-//  这里把每个文件的理解结论连同「读它时的 mtime/size + 模型指纹」一起落盘：
-//  文件没变且模型没换，就直接复用，既不读文件也不发请求。
-//
-
+// 文件理解只绑定读取时的内容与提取策略；时间戳不能替旧结果背书。
 import Foundation
-
-// MARK: - 单文件理解结论
 
 struct RepoFileInsight: Codable, Sendable {
     var path: String
     var purpose: String
     var keyPoints: [String]
-
-    /// 记录结论时目标的 mtime / size，用于判定文件是否变过。
+    // 保留旧字段以读取历史文件；它们不再参与缓存命中。
     var modified: Double = 0
     var size: Int = 0
-    /// 产出这条结论的模型标识：换模型后旧结论自动失效，避免不同模型的判断混在一起。
     var model: String = ""
     var recordedAt: Double = 0
+    var sourceDigest: String?
+    var pipelineKey: String?
+    var noKnowledgeReason: String?
 
     init(path: String, purpose: String, keyPoints: [String]) {
-        self.path = path
-        self.purpose = purpose
-        self.keyPoints = keyPoints
+        self.path = path; self.purpose = purpose; self.keyPoints = keyPoints
     }
+
+    var receipt: WikiSourceSnapshot { .init(path: path, digest: sourceDigest) }
 }
 
-// MARK: - 存储
-
-struct WikiInsightStore: Codable {
-
-    /// 相对路径 → 结论。
+struct WikiInsightStore: Codable, Sendable {
     private(set) var records: [String: RepoFileInsight] = [:]
-
+    /// 升级覆盖当前记录前，保留旧格式观察；它们仍不能作为新鲜缓存命中。
+    private(set) var legacyRecords: [String: RepoFileInsight]?
+    /// 旧数据保留可读，损坏的数据不允许被空缓存静默覆盖。
+    private(set) var loadIssue: String?
     var count: Int { records.count }
 
-    // MARK: 存取
-
-    static func url(root: URL) -> URL {
-        root.appending(path: ".qiyide/wiki/.insights.json")
-    }
+    static func url(root: URL) -> URL { root.appending(path: ".qiyide/wiki/.insights.json") }
 
     static func load(root: URL) -> WikiInsightStore {
-        guard let data = try? Data(contentsOf: url(root: root)),
-              let store = try? JSONDecoder().decode(WikiInsightStore.self, from: data) else {
-            return WikiInsightStore()
+        let target = url(root: root)
+        guard FileManager.default.fileExists(atPath: target.path) else { return .init() }
+        do { return try JSONDecoder().decode(Self.self, from: Data(contentsOf: target)) }
+        catch {
+            var failed = Self()
+            failed.loadIssue = "文件理解缓存无法读取：\(error.localizedDescription)；原文件未覆盖。"
+            return failed
         }
-        return store
     }
 
-    func save(root: URL) {
+    func save(root: URL) throws {
+        guard loadIssue == nil else { throw WikiGenerationError.invalidOutput(loadIssue ?? "缓存无法读取") }
         let target = Self.url(root: root)
-        try? FileManager.default.createDirectory(
-            at: target.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        guard let data = try? JSONEncoder().encode(self) else { return }
-        try? data.write(to: target, options: .atomic)
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(self).write(to: target, options: .atomic)
     }
 
-    // MARK: 判定与写入
-
-    /// 命中条件：文件没改过，且结论是同一个模型给的。
-    func insight(for path: String, url: URL, model: String) -> RepoFileInsight? {
-        guard let record = records[path] else { return nil }
-        // 模型指纹不同说明判断标准变了，旧结论不能直接复用。
-        guard record.model.isEmpty || record.model == model else { return nil }
-        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-              let modified = values.contentModificationDate?.timeIntervalSince1970,
-              let size = values.fileSize else {
-            return nil
-        }
-        // 容差不能给到 1 秒：同一秒内保存两次会漏判，而 APFS 的 mtime 是纳秒精度。
-        guard abs(record.modified - modified) < 0.001, record.size == size else { return nil }
+    func insight(for source: WikiSourceSnapshot, pipelineKey: String) -> RepoFileInsight? {
+        guard let record = records[source.path], let digest = source.digest,
+              record.sourceDigest == digest, record.pipelineKey == pipelineKey else { return nil }
         return record
     }
 
-    /// 写入一条结论，同时刻上目标文件当前的 mtime / size。
-    mutating func record(
-        path: String,
-        purpose: String,
-        keyPoints: [String],
-        url: URL,
-        model: String
-    ) {
-        var insight = RepoFileInsight(path: path, purpose: purpose, keyPoints: keyPoints)
-        if let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) {
-            insight.modified = values.contentModificationDate?.timeIntervalSince1970 ?? 0
-            insight.size = values.fileSize ?? 0
-        }
-        insight.model = model
-        insight.recordedAt = Date().timeIntervalSince1970
-        records[path] = insight
+    /// 只读概览兼容入口。model 必须是策略键，模型显示名不能命中旧缓存。
+    func insight(for path: String, url: URL, model: String) -> RepoFileInsight? {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true, (values.fileSize ?? 0) <= WikiGenerationSources.maxFileBytes,
+              let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: WikiGenerationSources.maxFileBytes + 1),
+              data.count <= WikiGenerationSources.maxFileBytes else { return nil }
+        return insight(for: .init(path: path, digest: WikiGenerationPolicy.digest(data)), pipelineKey: model)
     }
 
-    /// 清掉已经不存在的文件的结论，避免状态文件无限增长。
+    /// 这里不再读磁盘：收到的是生成前、从实际输入字节取得的凭据。
+    mutating func record(_ insight: RepoFileInsight, source: WikiSourceSnapshot, pipelineKey: String, model: String) throws {
+        guard insight.path == source.path, source.digest != nil, !pipelineKey.isEmpty else {
+            throw WikiGenerationError.invalidOutput("文件结论缺少读取时的版本凭据")
+        }
+        if let old = records[insight.path], old.sourceDigest == nil || old.pipelineKey == nil {
+            preserveLegacy(old)
+        }
+        var recorded = insight
+        recorded.sourceDigest = source.digest
+        recorded.pipelineKey = pipelineKey
+        recorded.model = model
+        recorded.recordedAt = Date().timeIntervalSince1970
+        records[insight.path] = recorded
+    }
+
+    private mutating func preserveLegacy(_ insight: RepoFileInsight) {
+        var history = legacyRecords ?? [:]
+        if history[insight.path] == nil { history[insight.path] = insight }
+        legacyRecords = history
+    }
+
     mutating func prune(existingPaths: Set<String>) {
+        for record in records.values where !existingPaths.contains(record.path)
+            && (record.sourceDigest == nil || record.pipelineKey == nil) {
+            preserveLegacy(record)
+        }
         records = records.filter { existingPaths.contains($0.key) }
     }
 
-    var allInsights: [RepoFileInsight] {
-        Array(records.values)
-    }
+    var archivedLegacyCount: Int { legacyRecords?.count ?? 0 }
+    var allInsights: [RepoFileInsight] { records.values.sorted { $0.path < $1.path } }
 }

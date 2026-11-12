@@ -27,6 +27,17 @@ struct WikiBatchJob: Sendable {
     let paths: [String]
     /// 已经由缓存命中的结论：不发请求，直接并回结果。
     var cached: [RepoFileInsight] = []
+    var sources: [WikiSourceSnapshot] = []
+    var pipelineKey: String = ""
+}
+
+enum WikiModelStop: Sendable {
+    case budget, cancelled
+    static func classify(_ error: Error) -> Self? {
+        if case WikiGenerationError.requestLimit = error { return .budget }
+        if error is CancellationError { return .cancelled }
+        return nil
+    }
 }
 
 struct WikiBatchOutcome: Sendable {
@@ -37,6 +48,10 @@ struct WikiBatchOutcome: Sendable {
     let usedModel: Bool
     let error: String?
     let elapsed: TimeInterval
+    var sources: [WikiSourceSnapshot] = []
+    var pipelineKey: String = ""
+    var attempts: Int = 0
+    var stop: WikiModelStop?
 
     var isSuccess: Bool { error == nil }
 }
@@ -59,12 +74,23 @@ struct WikiRelateJob: Sendable {
     let module: String
     let kind: AIProviderKind
     let request: AINarrativeRequest
+    var provenance: WikiGenerationProvenance?
+    var scopePaths: [String] = []
+    var basisDigest: String = ""
 }
 
 struct WikiRelateOutcome: Sendable {
     let module: String
     let payload: WikiModuleDraftPayload?
     let error: String?
+    var noKnowledgeReason: String?
+    var attempts: Int = 0
+    var stop: WikiModelStop?
+}
+
+private actor WikiAttemptCount {
+    private(set) var value = 0
+    func increment() { value += 1 }
 }
 
 // MARK: - 客户端
@@ -80,18 +106,22 @@ enum WikiModelClient {
     static func run(
         _ jobs: [WikiBatchJob],
         concurrency: Int,
-        onOutcome: (@Sendable (WikiBatchOutcome) -> Void)? = nil
+        onAttempt: (@Sendable (Int, Int) async throws -> Void)? = nil,
+        complete: Completion? = nil,
+        onOutcome: (@Sendable (WikiBatchOutcome) async -> Void)? = nil
     ) async -> [WikiBatchOutcome] {
-        await schedule(jobs, concurrency: concurrency, onResult: onOutcome) { await execute($0) }
+        await schedule(jobs, concurrency: concurrency, onResult: onOutcome) { await execute($0, onAttempt: onAttempt, complete: complete) }
     }
 
     /// 并发执行一批模块联系任务。
     static func runRelate(
         _ jobs: [WikiRelateJob],
         concurrency: Int,
-        onOutcome: (@Sendable (WikiRelateOutcome) -> Void)? = nil
+        onAttempt: (@Sendable (Int, Int) async throws -> Void)? = nil,
+        complete: Completion? = nil,
+        onOutcome: (@Sendable (WikiRelateOutcome) async -> Void)? = nil
     ) async -> [WikiRelateOutcome] {
-        await schedule(jobs, concurrency: concurrency, onResult: onOutcome) { await executeRelate($0) }
+        await schedule(jobs, concurrency: concurrency, onResult: onOutcome) { await executeRelate($0, onAttempt: onAttempt, complete: complete) }
     }
 
     /// 固定并发度的调度器。
@@ -103,7 +133,7 @@ enum WikiModelClient {
     private static func schedule<Job: Sendable, Result: Sendable>(
         _ jobs: [Job],
         concurrency: Int,
-        onResult: (@Sendable (Result) -> Void)? = nil,
+        onResult: (@Sendable (Result) async -> Void)? = nil,
         work: @escaping @Sendable (Job) async -> Result
     ) async -> [Result] {
         guard !jobs.isEmpty else { return [] }
@@ -114,13 +144,14 @@ enum WikiModelClient {
             var results: [Result] = []
             var active = 0
 
-            while active < limit, let job = iterator.next() {
+            while !Task.isCancelled, active < limit, let job = iterator.next() {
                 group.addTask { await work(job) }
                 active += 1
             }
             while let result = await group.next() {
                 results.append(result)
-                onResult?(result)
+                await onResult?(result)
+                if Task.isCancelled { group.cancelAll(); continue }
                 if let next = iterator.next() {
                     group.addTask { await work(next) }
                 }
@@ -131,84 +162,125 @@ enum WikiModelClient {
 
     // MARK: 执行：理解文件
 
-    static func execute(_ job: WikiBatchJob) async -> WikiBatchOutcome {
-        let started = Date()
-        defer { _ = started }
+    typealias Completion = @Sendable (AINarrativeRequest) async throws -> String
 
-        // 全部命中缓存：一次请求都不发。
-        if job.paths.isEmpty {
-            return WikiBatchOutcome(
-                id: job.id, paths: [], insights: job.cached,
-                usedModel: false, error: nil, elapsed: 0
-            )
+    /// 非完整输出可以保留有效文件，但不能把整批算成功；越界/重复路径整批拒绝。
+    static func parseFiles(_ object: [String: Any], requested: [String]) throws -> (insights: [RepoFileInsight], missing: [String]) {
+        guard Set(requested).count == requested.count,
+              let items = object["files"] as? [[String: Any]], items.count <= requested.count else {
+            throw WikiGenerationError.invalidOutput("files 数组缺失或文件数量不合法")
         }
+        let allowed = Set(requested)
+        var seen = Set<String>()
+        var insights: [RepoFileInsight] = []
+        for item in items {
+            guard let path = item["path"] as? String, allowed.contains(path), seen.insert(path).inserted else {
+                throw WikiGenerationError.invalidOutput("返回了未请求或重复的文件路径")
+            }
+            guard item["status"] == nil || item["status"] is String else {
+                throw WikiGenerationError.invalidOutput("文件状态不是字符串")
+            }
+            let status = item["status"] as? String ?? "observed"
+            guard status == "observed" || status == "skip" else {
+                throw WikiGenerationError.invalidOutput("未知文件状态")
+            }
+            let purpose = WikiEntry.canonicalBody(item["purpose"] as? String ?? "")
+            let reason = WikiEntry.canonicalBody(item["reason"] as? String ?? "")
+            guard (status == "skip" && !reason.isEmpty) || (status == "observed" && !purpose.isEmpty) else {
+                throw WikiGenerationError.invalidOutput("文件职责或不记录理由为空")
+            }
+            guard item["keyPoints"] == nil || item["keyPoints"] is [String] else {
+                throw WikiGenerationError.invalidOutput("keyPoints 不是字符串数组")
+            }
+            let points = (item["keyPoints"] as? [String] ?? []).map(WikiEntry.canonicalBody).filter { !$0.isEmpty }
+            guard purpose.count <= 2_000, reason.count <= 2_000, points.count <= 3,
+                  points.allSatisfy({ $0.count <= 2_000 }) else {
+                throw WikiGenerationError.invalidOutput("文件结论超出输出预算")
+            }
+            var insight = RepoFileInsight(path: path, purpose: purpose, keyPoints: points)
+            if status == "skip" { insight.noKnowledgeReason = reason }
+            insights.append(insight)
+        }
+        return (insights, requested.filter { !seen.contains($0) })
+    }
 
+    static func execute(
+        _ job: WikiBatchJob, onAttempt: (@Sendable (Int, Int) async throws -> Void)? = nil,
+        complete: Completion? = nil, budgets: [Int] = budgetLadder
+    ) async -> WikiBatchOutcome {
+        let started = Date()
+        let counter = WikiAttemptCount()
+        if job.paths.isEmpty {
+            return .init(id: job.id, paths: [], insights: job.cached, usedModel: false,
+                         error: nil, elapsed: 0, sources: job.sources, pipelineKey: job.pipelineKey)
+        }
         do {
-            let object = try await callJSON(kind: job.kind, request: job.request)
-            guard let items = object["files"] as? [[String: Any]] else {
-                return WikiBatchOutcome(
-                    id: job.id, paths: job.paths, insights: job.cached,
-                    usedModel: true, error: "模型返回缺少 files 字段",
-                    elapsed: Date().timeIntervalSince(started)
-                )
+            let object = try await callJSON(kind: job.kind, request: job.request, budgets: budgets, onAttempt: { attempt, total in
+                try await onAttempt?(attempt, total)
+                await counter.increment()
+            }, complete: complete)
+            let parsed = try parseFiles(object, requested: job.paths)
+            let receipts = Dictionary(job.sources.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+            let insights = parsed.insights.map { original in
+                var insight = original
+                insight.sourceDigest = receipts[insight.path]?.digest
+                insight.pipelineKey = job.pipelineKey
+                return insight
             }
-            let insights = items.compactMap { item -> RepoFileInsight? in
-                guard let path = item["path"] as? String, !path.isEmpty else { return nil }
-                let purpose = (item["purpose"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-                guard !purpose.isEmpty else { return nil }
-                let points = (item["keyPoints"] as? [String] ?? []).filter { !$0.isEmpty }
-                return RepoFileInsight(path: path, purpose: purpose, keyPoints: points)
-            }
-            return WikiBatchOutcome(
-                id: job.id,
-                paths: job.paths,
-                insights: job.cached + insights,
-                usedModel: true,
-                error: insights.isEmpty ? "模型没有解析出任何文件的职责" : nil,
-                elapsed: Date().timeIntervalSince(started)
-            )
+            let attempts = await counter.value
+            return .init(id: job.id, paths: job.paths, insights: job.cached + insights, usedModel: attempts > 0,
+                         error: parsed.missing.isEmpty ? nil : "缺少 \(parsed.missing.count) 个文件：" + parsed.missing.joined(separator: "、"),
+                         elapsed: Date().timeIntervalSince(started), sources: job.sources,
+                         pipelineKey: job.pipelineKey, attempts: attempts)
         } catch {
-            return WikiBatchOutcome(
-                id: job.id, paths: job.paths, insights: job.cached,
-                usedModel: true, error: AINarrativeError.describe(error),
-                elapsed: Date().timeIntervalSince(started)
-            )
+            let attempts = await counter.value
+            return .init(id: job.id, paths: job.paths, insights: job.cached, usedModel: attempts > 0,
+                         error: error.localizedDescription, elapsed: Date().timeIntervalSince(started),
+                         sources: job.sources, pipelineKey: job.pipelineKey, attempts: attempts,
+                         stop: WikiModelStop.classify(error))
         }
     }
 
     // MARK: 执行：模块联系
 
-    static func executeRelate(_ job: WikiRelateJob) async -> WikiRelateOutcome {
+    static func executeRelate(
+        _ job: WikiRelateJob, onAttempt: (@Sendable (Int, Int) async throws -> Void)? = nil,
+        complete: Completion? = nil, budgets: [Int] = budgetLadder
+    ) async -> WikiRelateOutcome {
+        let counter = WikiAttemptCount()
         do {
-            let object = try await callJSON(kind: job.kind, request: job.request)
-            let responsibility = (object["responsibility"] as? String ?? "")
-                .trimmingCharacters(in: .whitespaces)
-            guard !responsibility.isEmpty else {
-                return WikiRelateOutcome(module: job.module, payload: nil, error: "模型没有给出模块职责")
+            let object = try await callJSON(kind: job.kind, request: job.request, budgets: budgets, onAttempt: { attempt, total in
+                try await onAttempt?(attempt, total)
+                await counter.increment()
+            }, complete: complete)
+            guard object["action"] == nil || object["action"] is String else {
+                throw WikiGenerationError.invalidOutput("模块动作不是字符串")
             }
-            let relations = (object["relations"] as? [[String: Any]] ?? []).compactMap { item -> WikiRelationSpec? in
-                guard let target = item["target"] as? String, !target.isEmpty else { return nil }
-                let kind = (item["kind"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-                return WikiRelationSpec(kind: kind.isEmpty ? "相关" : kind, target: target)
+            if let action = object["action"] as? String {
+                guard action == "create" || action == "skip" else { throw WikiGenerationError.invalidOutput("未知模块动作") }
+                if action == "skip" {
+                    let reason = WikiEntry.canonicalBody(object["reason"] as? String ?? "")
+                    guard !reason.isEmpty, reason.count <= 2_000 else { throw WikiGenerationError.invalidOutput("缺少无需记录的理由") }
+                    return .init(module: job.module, payload: nil, error: nil, noKnowledgeReason: reason, attempts: await counter.value)
+                }
             }
-            let decisions = (object["decisions"] as? [String] ?? []).filter { !$0.isEmpty }
-            let rules = (object["rules"] as? [String] ?? []).filter { !$0.isEmpty }
-            return WikiRelateOutcome(
-                module: job.module,
-                payload: WikiModuleDraftPayload(
-                    responsibility: responsibility,
-                    relations: relations,
-                    decisions: decisions,
-                    rules: rules
-                ),
-                error: nil
-            )
+            let responsibility = WikiEntry.canonicalBody(object["responsibility"] as? String ?? "")
+            guard !responsibility.isEmpty, responsibility.count <= 6_000,
+                  object["decisions"] == nil || object["decisions"] is [String],
+                  object["rules"] == nil || object["rules"] is [String] else {
+                throw WikiGenerationError.invalidOutput("模块职责或数组未通过校验")
+            }
+            let decisions = (object["decisions"] as? [String] ?? []).map(WikiEntry.canonicalBody).filter { !$0.isEmpty }
+            let rules = (object["rules"] as? [String] ?? []).map(WikiEntry.canonicalBody).filter { !$0.isEmpty }
+            guard decisions.count <= 12, rules.count <= 12,
+                  (decisions + rules).allSatisfy({ $0.count <= 3_000 }) else {
+                throw WikiGenerationError.invalidOutput("模块结论超出输出预算")
+            }
+            return .init(module: job.module, payload: .init(responsibility: responsibility, relations: [],
+                         decisions: decisions, rules: rules), error: nil, attempts: await counter.value)
         } catch {
-            return WikiRelateOutcome(
-                module: job.module,
-                payload: nil,
-                error: AINarrativeError.describe(error)
-            )
+            return .init(module: job.module, payload: nil, error: error.localizedDescription,
+                         attempts: await counter.value, stop: WikiModelStop.classify(error))
         }
     }
 
@@ -218,7 +290,9 @@ enum WikiModelClient {
     static func callJSON(
         kind: AIProviderKind,
         request: AINarrativeRequest,
-        budgets: [Int] = budgetLadder
+        budgets: [Int] = budgetLadder,
+        onAttempt: (@Sendable (Int, Int) async throws -> Void)? = nil,
+        complete: Completion? = nil
     ) async throws -> [String: Any] {
         let provider = kind.makeProvider()
         var lastError: Error = AINarrativeError.emptyResponse
@@ -227,15 +301,21 @@ enum WikiModelClient {
             if attempt > 0 {
                 // 退避 1.5s → 3s，给网关一点恢复时间。
                 let delay = UInt64(1_500_000_000) * UInt64(attempt)
-                try? await Task.sleep(nanoseconds: delay)
+                try await Task.sleep(nanoseconds: delay)
             }
-            if Task.isCancelled { throw AINarrativeError.cancelled }
+            try Task.checkCancellation()
+            try await onAttempt?(attempt + 1, budgets.count)
+            try Task.checkCancellation()
 
             do {
                 // 超时由 `AINarrativeHTTP.session` 的 timeoutIntervalForResource 兜底。
                 // 这里不再自己包一层 withTimeout：结构化并发在抛超时之后仍会等
                 // 那个挂住的请求结束，反而变成「超时了还卡着」。
-                let raw = try await provider.complete(request.withMaxTokens(budget))
+                let prepared = request.withMaxTokens(budget)
+                let raw: String
+                if let complete { raw = try await complete(prepared) }
+                else { raw = try await provider.complete(prepared) }
+                try Task.checkCancellation()
                 guard let object = parseJSON(raw) else {
                     lastError = WikiCuratorError.invalidResponse(String(raw.prefix(120)))
                     continue
@@ -251,6 +331,7 @@ enum WikiModelClient {
 
     /// 配置错误重试没有意义，直接放弃这一批，让上层尽早暴露问题。
     static func isRetryable(_ error: Error) -> Bool {
+        if error is CancellationError || error is WikiGenerationError { return false }
         if let error = error as? AINarrativeError {
             switch error {
             case .http(let status, _):

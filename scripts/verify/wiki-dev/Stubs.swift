@@ -54,3 +54,11 @@ final class NotificationManager {
         print("[wiki-dev] 通知：\(title) — \(description)")
     }
 }
+
+// 架构任务的配置入口只验证路由，不打开真实设置窗口或读取凭据。
+@MainActor
+final class SettingsNavigation {
+    enum Page { case ai }
+    static let shared = SettingsNavigation()
+    func request(_ page: Page) { print("[wiki-dev] 打开 AI 设置") }
+}

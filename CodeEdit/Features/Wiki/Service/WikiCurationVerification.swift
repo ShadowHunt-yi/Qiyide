@@ -105,7 +105,7 @@ enum WikiCurationVerification {
                 options.filesPerRound = filesPerRound
                 options.concurrency = 2
                 // 用累计调用数卡预算：每轮 4 个文件约 2 次调用，跑完一轮就停。
-                options.maxCallsTotal = WikiCurationJob.load(root: root).callsUsed + 3
+                options.maxCallsPerRun = 3
                 options.maxMinutes = 10
 
                 let before = metrics(store: store, root: root)

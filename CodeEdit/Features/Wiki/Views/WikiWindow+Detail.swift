@@ -22,8 +22,12 @@ extension WikiWindowView {
                 draft: draft,
                 domainOptions: domains.graph.domains.map { ($0.id, $0.displayTitle) },
                 onSave: { saved in
-                    try? store.save(saved)
-                    editing = nil
+                    do {
+                        var edited = saved
+                        edited.protectsHumanContent = true
+                        try store.save(edited)
+                        editing = nil
+                    } catch { curatorError = error.localizedDescription }
                 },
                 onCancel: { editing = nil },
                 onDelete: { deleteTarget = draft }
@@ -50,7 +54,7 @@ extension WikiWindowView {
                 Image(systemName: "sidebar.right")
                     .font(.system(size: 24))
                     .foregroundStyle(.tertiary)
-                Text("选择左侧的领域或条目，或点击导图中的节点")
+                Text("选择一条知识，查看业务内容、确认记录和来源变化")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -104,8 +108,8 @@ extension WikiWindowView {
 
     /// 在工作区里打开源码。没有工作区时退回访达。
     func openSource(_ source: String) {
-        let url = store.root.appending(path: source)
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        guard let url = WikiSourceInspector.resolvedFile(source, root: store.root),
+              FileManager.default.fileExists(atPath: url.path) else {
             curatorError = "文件已不存在：\(source)"
             return
         }
@@ -119,10 +123,8 @@ extension WikiWindowView {
 
     func detail(_ entry: WikiEntry) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if entry.isDraft {
-                draftBanner(entry)
-                Divider()
-            }
+            knowledgeBanner(entry)
+            Divider()
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Circle()
@@ -157,6 +159,25 @@ extension WikiWindowView {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    knowledgeEvidence(entry)
+                    if let targetID = entry.proposalFor {
+                        section("更新建议的原文") {
+                            if let original = store.entry(id: targetID) {
+                                Text(original.body)
+                                    .font(.system(size: 12))
+                                    .textSelection(.enabled)
+                                    .lineLimit(showsFullOriginalKnowledge ? nil : 6)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Button(showsFullOriginalKnowledge ? "收起原文" : "查看完整原文") {
+                                    showsFullOriginalKnowledge.toggle()
+                                }
+                                .buttonStyle(.link).font(.system(size: 10))
+                            } else {
+                                Text("原条目不存在，不能自动接受更新。")
+                                    .font(.system(size: 11)).foregroundStyle(.orange)
+                            }
+                        }
+                    }
                     if !entry.tags.isEmpty {
                         section("标签") {
                             HStack(spacing: 4) {
@@ -205,7 +226,7 @@ extension WikiWindowView {
                         }
                     }
 
-                    section("正文") {
+                    section(entry.proposalFor == nil ? "正文" : "拟更新内容") {
                         if entry.body.isEmpty {
                             Text("（空）")
                                 .font(.system(size: 11))
@@ -251,34 +272,104 @@ extension WikiWindowView {
     ///
     /// 只认「未提交改动」是错的：提交完、或者看的是历史代码，就再也生成不了知识。
 
-    func draftBanner(_ entry: WikiEntry) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 10))
-            VStack(alignment: .leading, spacing: 1) {
-                Text("AI 起草 · 待确认")
-                    .font(.system(size: 11, weight: .medium))
-                if !entry.generatedBy.isEmpty {
-                    Text(entry.generatedBy)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
+    func knowledgeBanner(_ entry: WikiEntry) -> some View {
+        let assessment = store.assessment(for: entry)
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                WikiKnowledgeBadge(assessment: assessment)
+                Spacer()
+                if entry.isDraft && entry.protectsHumanContent {
+                    Button("删除…") { deleteTarget = entry }.controlSize(.small)
+                } else if entry.isDraft {
+                    Button("丢弃草稿") {
+                        do {
+                            try store.discardDraft(entry)
+                            selection = nil
+                        } catch { curatorError = error.localizedDescription }
+                    }
+                    .controlSize(.small)
                 }
             }
-            Spacer()
-            Button("丢弃") {
-                try? store.discardDraft(entry)
-                selection = nil
+            if entry.proposalFor != nil {
+                Text(entry.provenance?.pipeline == "manual-source-binding-v1"
+                     ? "已解析真实来源，原文未覆盖。请对照来源与原文后决定。"
+                     : "AI 提出了更新，原文未覆盖。请对照后决定。")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Button("接受更新并确认") {
+                    do { selection = try store.acceptProposal(entry).id }
+                    catch { curatorError = error.localizedDescription }
+                }
+                .disabled(store.isCheckingKnowledge)
+                .controlSize(.small)
+            } else if !assessment.state.canReference {
+                if !entry.scopePaths.isEmpty && entry.sources.isEmpty {
+                    Text("尚未绑定实际文件。校验只检查现有基线，不能靠反复点击变成可引用。")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    Button(sourceBindingID == entry.id ? "正在解析来源…" : "解析真实来源并生成更新建议") {
+                        guard sourceBindingID == nil else { return }
+                        sourceBindingID = entry.id
+                        Task {
+                            defer { sourceBindingID = nil }
+                            do {
+                                let proposal = try await store.proposeSourceBinding(for: entry)
+                                selection = proposal.id
+                                curatorMessage = "已生成来源绑定建议，原文未修改；请对照后接受更新，再校验来源。"
+                            } catch { curatorError = error.localizedDescription }
+                        }
+                    }
+                    .disabled(sourceBindingID != nil || store.isCheckingKnowledge)
+                    .controlSize(.small)
+                    Button("手动编辑文件来源与范围") { editing = entry }
+                        .disabled(store.isCheckingKnowledge)
+                        .controlSize(.small)
+                } else {
+                    Button("我已核对，确认当前知识") {
+                        do { try store.confirm(entry) }
+                        catch { curatorError = error.localizedDescription }
+                    }
+                    .disabled(store.isCheckingKnowledge)
+                    .controlSize(.small)
+                    .help("记录这版内容及来源。无法核验的来源仍不作为 AI 的依据。")
+                }
             }
-            .controlSize(.small)
-            Button("确认") {
-                try? store.confirm(entry)
+            if !assessment.nextStep.isEmpty {
+                Text(assessment.nextStep).font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            .controlSize(.small)
-            .buttonStyle(.borderedProminent)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.orange.opacity(0.10))
+        .padding(12)
+        .background(WikiKnowledgeBadge.color(assessment.state).opacity(0.06))
+    }
+
+    func knowledgeEvidence(_ entry: WikiEntry) -> some View {
+        let assessment = store.assessment(for: entry)
+        return section("依据与确认") {
+            Text(assessment.detail)
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let receipt = entry.confirmation {
+                Text("人工确认：\(receipt.confirmedAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                Text("内容版本：\(receipt.contentDigest.prefix(12))")
+                    .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
+            }
+            if !entry.generatedBy.isEmpty {
+                Text("起草来源：\(entry.generatedBy)")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            ForEach(assessment.changedSources, id: \.self) { source in sourceRow(source) }
+            if !assessment.issues.isEmpty {
+                DisclosureGroup("具体来源问题（\(assessment.issues.count) 项）") {
+                    ForEach(Array(assessment.issues.enumerated()), id: \.offset) { _, issue in
+                        VStack(alignment: .leading, spacing: 3) {
+                            if let path = issue.path {
+                                Text(path).font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
+                            }
+                            Text(issue.detail).font(.system(size: 10)).foregroundStyle(.secondary)
+                        }.padding(.vertical, 3)
+                    }
+                }.font(.system(size: 10))
+            }
+        }
     }
 
     /// 分组标题 + 内容。样式统一在 `WikiSection`，这里只保留调用形式。

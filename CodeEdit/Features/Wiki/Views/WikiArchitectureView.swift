@@ -18,7 +18,17 @@ import SwiftUI
 struct WikiArchitectureView: View {
 
     let architecture: WikiArchitecture
+    var selection: Binding<String?>? = nil
     @State private var selectedDomain: String?
+
+    private var selectedName: String? {
+        if let selection { return selection.wrappedValue }
+        return selectedDomain
+    }
+
+    private func choose(_ name: String?) {
+        if let selection { selection.wrappedValue = name } else { selectedDomain = name }
+    }
 
     var body: some View {
         if architecture.isEmpty {
@@ -40,7 +50,7 @@ struct WikiArchitectureView: View {
                     }
                     layerRow(layer: item.layer, domains: item.domains)
                 }
-                if let domain = selectedDomain.flatMap({ name in
+                if selection == nil, let domain = selectedName.flatMap({ name in
                     architecture.domains.first { $0.name == name }
                 }) {
                     detail(domain)
@@ -57,9 +67,13 @@ struct WikiArchitectureView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
             Spacer()
-            if !architecture.generatedBy.isEmpty {
+            if architecture.generation != nil {
+                Text(architecture.generation?.method == .staticAnalysis ? "静态分析 · 未经人工核对" : "AI 草稿 · 未经人工核对")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            if !architecture.generatedBy.isEmpty, architecture.generation?.method != .staticAnalysis {
                 Text(architecture.generatedBy)
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -95,9 +109,9 @@ struct WikiArchitectureView: View {
     }
 
     private func card(_ domain: WikiDomain) -> some View {
-        let isSelected = selectedDomain == domain.name
+        let isSelected = selectedName == domain.name
         return Button {
-            selectedDomain = isSelected ? nil : domain.name
+            choose(isSelected ? nil : domain.name)
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
@@ -181,7 +195,7 @@ struct WikiArchitectureView: View {
                     .foregroundStyle(Self.color(for: domain.layer))
                 Spacer()
                 Button {
-                    selectedDomain = nil
+                    choose(nil)
                 } label: {
                     Image(systemName: "xmark").font(.system(size: 9))
                 }

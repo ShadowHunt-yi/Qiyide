@@ -17,47 +17,53 @@ enum WikiChangeSource {
 
     /// 工作区相对 HEAD 的改动。包含已暂存与未暂存，未跟踪文件只记路径不读内容。
     static func workingTree(root: URL) -> WikiCurationInput? {
-        let status = run(["status", "--porcelain"], at: root) ?? ""
-        let files: [String] = status
-            .split(separator: "\n")
-            .compactMap { line -> String? in
-                guard line.count > 3 else { return nil }
-                let path = line.dropFirst(3).trimmingCharacters(in: .whitespaces)
-                // 重命名显示为 "old -> new"，取新路径。
-                if let arrow = path.range(of: " -> ") {
-                    return String(path[arrow.upperBound...])
-                }
-                return path
-            }
-            .filter { !$0.isEmpty }
-
+        guard let status = run(["status", "--porcelain", "-z", "--untracked-files=all"], at: root) else { return nil }
+        let records = status.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+        var files: [String] = [], untracked: [String] = []
+        var index = 0
+        while index < records.count {
+            let record = records[index]; index += 1
+            guard record.count >= 4 else { continue }
+            let state = String(record.prefix(2))
+            let path = String(record.dropFirst(3))
+            if state.contains("R") || state.contains("C") { index += 1 } // -z 中下一段是旧路径。
+            guard !path.hasPrefix(".qiyide/"), !path.hasPrefix(".workflow/") else { continue }
+            files.append(path)
+            if state == "??" { untracked.append(path) }
+        }
+        files = Array(Set(files)).sorted()
         guard !files.isEmpty else { return nil }
-
-        let diff = run(["diff", "HEAD", "--unified=3"], at: root) ?? ""
-        let staged = run(["diff", "--cached", "--unified=3"], at: root) ?? ""
-        let combined = [diff, staged].filter { !$0.isEmpty }.joined(separator: "\n")
-
-        let summary = files.count > 6
-            ? "未提交改动（\(files.count) 个文件）"
-            : "未提交改动（\(files.prefix(6).joined(separator: "、"))）"
-
-        return WikiCurationInput(
-            subject: summary,
-            files: files,
-            signals: [],
-            // 未跟踪文件没有 diff 内容，但路径仍然有价值，标题里已经带上。
-            diff: String(combined.prefix(400_000))
-        )
+        var input = WikiCurationInput(subject: "未提交改动（\(files.count) 个文件）", files: files, signals: [], diff: "",
+                                      basis: "当前工作区补丁与新文件片段的观察，不是业务意图证明")
+        do {
+            let sources = try WikiGenerationSources.capture(paths: files, root: root, allowMissing: true)
+            // diff HEAD 已包含暂存与未暂存，不能再把 --cached 同一段重复拼一次。
+            guard let diff = run(["diff", "HEAD", "--unified=3"], at: root) else {
+                throw WikiGenerationError.unreadableSource("工作区补丁")
+            }
+            var sections = [diff]
+            for path in untracked {
+                let read = try WikiGenerationSources.read(path: path, root: root)
+                guard sources.first(where: { $0.path == path })?.digest == read.source.digest,
+                      let text = String(data: read.data, encoding: .utf8) else { throw WikiGenerationError.changedSource(path) }
+                sections.append("=== 新文件 \(path) ===\n" + String(text.prefix(3_000)))
+            }
+            try WikiGenerationSources.validate(sources, root: root)
+            input.diff = String(sections.joined(separator: "\n\n").prefix(400_000))
+            input.sourceSnapshots = sources
+        } catch { input.readIssue = error.localizedDescription }
+        return input
     }
-
 
     /// 最近一次提交。工作区干净时，这是最接近「刚写完的代码」的输入。
     static func lastCommit(root: URL) -> WikiCurationInput? {
-        let subject = (run(["log", "-1", "--pretty=format:%s"], at: root) ?? "")
+        guard let revision = run(["rev-parse", "HEAD"], at: root)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !revision.isEmpty else { return nil }
+        let subject = (run(["log", "-1", "--pretty=format:%s", revision], at: root) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !subject.isEmpty else { return nil }
 
-        let numstat = run(["show", "--numstat", "--format=", "HEAD"], at: root) ?? ""
+        let numstat = run(["show", "--numstat", "--format=", revision], at: root) ?? ""
         let files: [String] = numstat
             .split(separator: "\n")
             .compactMap { line -> String? in
@@ -67,32 +73,36 @@ enum WikiChangeSource {
             }
             .filter { !$0.isEmpty }
 
-        let diff = run(["show", "--format=", "--unified=3", "HEAD"], at: root) ?? ""
-        return WikiCurationInput(
-            subject: "最近提交：\(subject)",
-            files: files,
-            signals: [],
-            diff: String(diff.prefix(400_000))
-        )
+        var input = WikiCurationInput(subject: "最近提交：\(subject)", files: files, signals: [], diff: "",
+                                      basis: "历史提交 \(revision) 的改动观察，不代表当前工作区已经实现；必须人工核对")
+        do {
+            let sources = try WikiGenerationSources.capture(paths: files, root: root, allowMissing: true)
+            guard let diff = run(["show", "--format=", "--unified=3", revision], at: root) else {
+                throw WikiGenerationError.unreadableSource("历史提交补丁")
+            }
+            try WikiGenerationSources.validate(sources, root: root)
+            input.diff = String(diff.prefix(400_000)); input.sourceSnapshots = sources
+        } catch { input.readIssue = error.localizedDescription }
+        return input
     }
 
     /// 现有代码快照。用于「这段代码当初为什么这么写」这类没有对应 diff 的知识。
     static func files(root: URL, paths: [String], limit: Int = 5, perFile: Int = 3000) -> WikiCurationInput? {
-        var sections: [String] = []
-        for path in paths.prefix(limit) {
-            let url = root.appending(path: path)
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            sections.append("=== \(path) ===\n" + String(text.prefix(perFile)))
-        }
-        guard !sections.isEmpty else { return nil }
-
-        let names = paths.prefix(3).map { ($0 as NSString).lastPathComponent }
-        return WikiCurationInput(
-            subject: "现有代码：\(names.joined(separator: "、"))",
-            files: paths,
-            signals: [],
-            diff: sections.joined(separator: "\n\n")
-        )
+        let selected = Array(Array(Set(paths)).sorted().prefix(max(0, limit)))
+        guard !selected.isEmpty else { return nil }
+        var sections: [String] = [], receipts: [WikiSourceSnapshot] = []
+        var input = WikiCurationInput(subject: "现有代码：" + selected.map { ($0 as NSString).lastPathComponent }.joined(separator: "、"),
+            files: selected, signals: [], diff: "", basis: "选中 \(selected.count)/\(Set(paths).count) 个文件的代码片段，不代表未读取的其它文件")
+        do {
+            for path in selected {
+                let read = try WikiGenerationSources.read(path: path, root: root)
+                guard let text = String(data: read.data, encoding: .utf8) else { throw WikiGenerationError.unreadableSource(path) }
+                sections.append("=== \(path) ===\n" + String(text.prefix(max(0, perFile))))
+                receipts.append(read.source)
+            }
+            input.diff = sections.joined(separator: "\n\n"); input.sourceSnapshots = receipts
+        } catch { input.readIssue = error.localizedDescription }
+        return input
     }
 
     /// git 不可用时的原因；可用返回 nil。

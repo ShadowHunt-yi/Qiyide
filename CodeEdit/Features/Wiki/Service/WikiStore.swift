@@ -22,11 +22,19 @@ final class WikiStore: ObservableObject {
     @Published private(set) var entries: [WikiEntry] = []
     @Published private(set) var graph: WikiGraph = .empty
     @Published private(set) var errorMessage: String?
+    @Published private(set) var actionError: String?
     @Published private(set) var isLoaded = false
+    @Published var knowledgeReport = WikiKnowledgeReport()
+    @Published var isCheckingKnowledge = false
+    var knowledgeGeneration = 0
+    @Published var knowledgeCheck = WikiKnowledgeCheckSnapshot()
+    var knowledgeCheckTask: Task<Void, Never>?
+    let knowledgeChecker: WikiKnowledgeCheckWorker
     /// 正在后台重扫。按钮用它显示进度，也用来挡掉重复点击。
     @Published private(set) var isReloading = false
     /// 结构层：域划分与域间依赖。独立于条目，不会因为条目增删而失效。
     @Published private(set) var architecture = WikiArchitecture.empty
+    @Published private(set) var architectureReadError: String?
 
     /// 内容版本号：任何一次写入都递增。
     ///
@@ -79,8 +87,13 @@ final class WikiStore: ObservableObject {
     /// 扫描代数号：两次重扫并发时，先发后到的那次结果必须丢掉。
     private var reloadGeneration: Int = 0
 
-    init(root: URL) {
+    init(root: URL, knowledgeChecker: WikiKnowledgeCheckWorker? = nil) {
         self.root = root
+        self.knowledgeChecker = knowledgeChecker ?? { entries, root, progress in
+            try await WikiBackgroundWork.run {
+                try WikiKnowledgeReview.evaluateChecked(entries: entries, root: root, onProgress: progress)
+            }
+        }
     }
 
     var directory: URL {
@@ -171,11 +184,13 @@ final class WikiStore: ObservableObject {
             searchRows = [:]
             bodyLinkCache = [:]
             architecture = .empty
+            architectureReadError = nil
             isLoaded = true
 
         case .failed(let message):
             // 目录读不出来时保留旧数据：临时 I/O 错误不该让整个知识库变空。
             errorMessage = message
+            architectureReadError = message
 
         case .success(let scanned):
             errorMessage = nil
@@ -186,10 +201,21 @@ final class WikiStore: ObservableObject {
             graphInputs = [:]
             rebuildIndexes()
             rebuildGraph()
-            architecture = WikiArchitecture.load(root: root)
+            if FileManager.default.fileExists(atPath: WikiArchitecture.url(root: root).path) {
+                do {
+                    architecture = try WikiArchitecture.loadValidated(root: root)
+                    architectureReadError = nil
+                } catch {
+                    architectureReadError = "架构文件无法读取，保留上次可读取的结果：\(error.localizedDescription)"
+                }
+            } else {
+                architecture = .empty
+                architectureReadError = nil
+            }
             contentRevision &+= 1
             isLoaded = true
         }
+        refreshKnowledge(contentChanged: true)
     }
 
     /// 重建派生索引。
@@ -455,7 +481,7 @@ final class WikiStore: ObservableObject {
         return entries.filter { entry in
             entry.sources.contains { source in
                 paths.contains { path in
-                    path == source || path.hasSuffix(source) || source.hasSuffix(path)
+                    WikiKnowledgeContext.matches(source: source, path: path)
                 }
             }
         }
@@ -489,7 +515,9 @@ final class WikiStore: ObservableObject {
     func save(_ entry: WikiEntry) throws {
         try ensureDirectory()
         var updated = entry
+        updated.body = WikiEntry.canonicalBody(updated.body)
         updated.updatedAt = Date()
+        invalidateChangedConfirmation(&updated)
         try write(updated)
         // 增量更新，不重读磁盘。
         //
@@ -502,7 +530,7 @@ final class WikiStore: ObservableObject {
     ///
     /// 这是所有写入的唯一收口：单条保存、批量保存、批量确认、批量删除都走它。
     /// 索引与图谱只重建一次，条目再多也只有一轮。
-    private func applyChanges(updated: [WikiEntry], removed: Set<String>) {
+    func applyChanges(updated: [WikiEntry], removed: Set<String>) {
         guard !updated.isEmpty || !removed.isEmpty else { return }
 
         if !removed.isEmpty {
@@ -519,7 +547,8 @@ final class WikiStore: ObservableObject {
             var positions: [String: Int] = [:]
             positions.reserveCapacity(entries.count)
             for (index, entry) in entries.enumerated() { positions[entry.id] = index }
-            for entry in updated {
+            for var entry in updated {
+                entry.body = WikiEntry.canonicalBody(entry.body)
                 if let index = positions[entry.id] {
                     entries[index] = entry
                 } else {
@@ -543,6 +572,7 @@ final class WikiStore: ObservableObject {
             refreshGraphNodes(updated)
         }
         contentRevision &+= 1
+        refreshKnowledge(contentChanged: true)
     }
 
     /// 这批改动会不会改变图的结构（节点集合、边集合）。
@@ -620,39 +650,56 @@ final class WikiStore: ObservableObject {
         domainID: String? = nil,
         refresh: Bool = true
     ) throws -> WikiEntry {
-        if draft.action == .update, let target = entry(titled: draft.target) {
+        guard draft.action != .skip else { throw WikiGenerationError.noKnowledge(draft.reason) }
+        guard !WikiEntry.canonicalBody(draft.body).isEmpty, !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw WikiKnowledgeError.emptyContent
+        }
+        try draft.provenance?.validate(root: root)
+        let sources = Array(Set(sources)).sorted()
+        if draft.provenance != nil, Set(sources) != Set(draft.sources) {
+            throw WikiGenerationError.invalidOutput("写入来源与生成时的真实来源不一致")
+        }
+        let target = draft.targetID.flatMap { self.entry(id: $0) } ?? (draft.targetID == nil ? self.entry(titled: draft.target) : nil)
+        guard draft.action != .update || target != nil else { throw WikiKnowledgeError.proposalConflict }
+        if draft.action == .update, let target {
+            // 已确认的知识只产生更新建议，不能被模型重建直接覆盖。
+            try requireUnchangedOnDisk(target)
+            let canRegenerate = target.isDraft && !target.protectsHumanContent && !target.generatedBy.isEmpty
+                && !target.tags.contains("domain")
+                && target.generationDigest == WikiKnowledgeReview.contentDigest(target)
+            if !canRegenerate {
+                guard target.proposalFor == nil else { throw WikiKnowledgeError.proposalConflict }
+                return try proposeUpdate(draft, target: target, generatedBy: generatedBy,
+                                         sources: sources, domainID: domainID, refresh: refresh)
+            }
             var updated = target
             switch draft.mergeMode {
             case .append:
                 // 一次改动带来的增量：追加，保留原文便于人对照。
                 let stamp = Date().formatted(date: .numeric, time: .shortened)
                 updated.body += "\n\n**补充（\(stamp)）**：\(draft.body)"
+                updated.relations = Array(Set(target.relations + draft.relations)).sorted { ($0.kind, $0.target) < ($1.kind, $1.target) }
             case .replace:
-                // 重复建档：整块替换 AI 生成的结构，只保留人写过的「补充」段落。
-                // 否则同一模块跑 N 轮就会累积 N 段互相矛盾的结论。
-                let preserved = Self.preservedNotes(in: target.body)
-                updated.body = preserved.isEmpty
-                    ? draft.body
-                    : draft.body + "\n\n" + preserved
-                if !draft.relations.isEmpty {
-                    updated.relations = draft.relations
-                }
-                if !sources.isEmpty {
-                    // 合并而不是覆盖。
-                    //
-                    // 一轮建档只会带上「本次待处理的文件」，直接覆盖会把上一轮
-                    // 已建档的文件从条目里摘掉；那些文件随即变回「没有条目引用」，
-                    // 下一轮又被当成待处理 → 同一个模块反复重写、永远跑不完。
-                    updated.sources = Array(Set(updated.sources).union(sources)).sorted()
-                }
+                // 只有未被人工修改的 AI 草稿才能走这里；人工内容保留在独立原文/更新建议中。
+                updated.body = draft.body
+                updated.relations = draft.relations
+
             }
             updated.status = .draft
+            updated.confirmation = nil
             updated.generatedBy = generatedBy
-            if updated.sources.isEmpty { updated.sources = sources }
+            updated.sources = draft.mergeMode == .append
+                ? Array(Set(target.sources + sources)).sorted() : sources
+            updated.scopePaths = draft.mergeMode == .append
+                ? Array(Set(target.scopePaths + draft.scopePaths)).sorted() : draft.scopePaths
+            // 增量保留旧来源并重新核验；没有版本凭据的旧来源不能伪装成此次模型输入。
+            updated.provenance = draft.provenance
+            updated.body = WikiEntry.canonicalBody(updated.body)
             // 只在「还没有归属」时补。人工改过的域不能被每次建档冲掉。
             if updated.domains.isEmpty, let domainID {
                 updated.domains = [domainID]
             }
+            updated.generationDigest = WikiKnowledgeReview.contentDigest(updated)
             if refresh {
                 try save(updated)
                 return entry(id: target.id) ?? updated
@@ -665,7 +712,7 @@ final class WikiStore: ObservableObject {
         try ensureDirectory()
         let id = uniqueID(basedOn: draft.title)
         let url = directory.appending(path: "\(id).md")
-        let entry = WikiEntry(
+        var entry = WikiEntry(
             id: id,
             title: draft.title,
             type: draft.type,
@@ -673,12 +720,13 @@ final class WikiStore: ObservableObject {
             sources: sources,
             domains: domainID.map { [$0] } ?? [],
             relations: draft.relations,
-            body: draft.body,
+            body: WikiEntry.canonicalBody(draft.body),
             updatedAt: Date(),
             fileURL: url,
             status: .draft,
-            generatedBy: generatedBy
+            generatedBy: generatedBy, scopePaths: draft.scopePaths, provenance: draft.provenance
         )
+        entry.generationDigest = WikiKnowledgeReview.contentDigest(entry)
         try write(entry)
         if refresh {
             applyChanges(updated: [entry], removed: [])
@@ -698,13 +746,15 @@ final class WikiStore: ObservableObject {
         try ensureDirectory()
         var written: [WikiEntry] = []
         written.reserveCapacity(entries.count)
+        defer { applyChanges(updated: written, removed: []) }
         for entry in entries {
             var updated = entry
+            updated.body = WikiEntry.canonicalBody(updated.body)
             updated.updatedAt = Date()
+            invalidateChangedConfirmation(&updated)
             try write(updated)
             written.append(updated)
         }
-        applyChanges(updated: written, removed: [])
     }
 
     /// 批量确认。
@@ -712,16 +762,27 @@ final class WikiStore: ObservableObject {
     /// 逐个写文件、最后只更新一次内存：旧实现最后 reload，一百条草稿要重读重解析一百次。
     @discardableResult
     func confirm(ids: [String]) -> Int {
-        var updated: [WikiEntry] = []
-        for id in ids {
-            guard let entry = entry(id: id), entry.isDraft else { continue }
-            var copy = entry
-            copy.status = .confirmed
-            copy.updatedAt = Date()
-            if (try? write(copy)) != nil { updated.append(copy) }
+        actionError = nil
+        var written: [WikiEntry] = []
+        var failures: [String] = []
+        for id in Set(ids).sorted() {
+            guard let entry = entry(id: id), entry.proposalFor == nil else { continue }
+            do {
+                try requireConfirmableContent(entry)
+                try requireUnchangedOnDisk(entry)
+                try requireCurrentGeneration(entry)
+                var updated = entry
+                updated.status = .confirmed
+                updated.protectsHumanContent = true
+                updated.updatedAt = Date()
+                updated.confirmation = WikiKnowledgeReview.confirmation(for: updated, root: root)
+                try write(updated)
+                written.append(updated)
+            } catch { failures.append(entry.title + "：" + error.localizedDescription) }
         }
-        applyChanges(updated: updated, removed: [])
-        return updated.count
+        applyChanges(updated: written, removed: [])
+        if !failures.isEmpty { actionError = failures.prefix(3).joined(separator: "\n") }
+        return written.count
     }
 
     /// 批量丢弃草稿：走废纸篓，可恢复。已确认的条目不动。
@@ -729,7 +790,7 @@ final class WikiStore: ObservableObject {
     func discardDrafts(ids: [String]) -> Int {
         var removed: Set<String> = []
         for id in ids {
-            guard let entry = entry(id: id), entry.isDraft else { continue }
+            guard let entry = entry(id: id), entry.isDraft, !entry.protectsHumanContent else { continue }
             if (try? FileManager.default.trashItem(at: entry.fileURL, resultingItemURL: nil)) != nil {
                 removed.insert(id)
             }
@@ -752,16 +813,23 @@ final class WikiStore: ObservableObject {
         return removed.count
     }
 
-    /// 人确认草稿：转入 confirmed，此后才会被当作可信知识。
+    /// 记录人工确认及来源快照；无法核验的来源仍不能作为 AI 依据。
     func confirm(_ entry: WikiEntry) throws {
+        guard entry.proposalFor == nil else { throw WikiKnowledgeError.proposalNeedsComparison }
+        try requireConfirmableContent(entry)
+        try requireUnchangedOnDisk(entry)
+        try requireCurrentGeneration(entry)
         var updated = entry
         updated.status = .confirmed
+        updated.protectsHumanContent = true
+        updated.confirmation = WikiKnowledgeReview.confirmation(for: updated, root: root)
         try save(updated)
     }
 
     /// 丢弃草稿：移入废纸篓，不直接删除。
     func discardDraft(_ entry: WikiEntry) throws {
         guard entry.isDraft else { return }
+        guard !entry.protectsHumanContent else { throw WikiKnowledgeError.requiresExplicitDeletion }
         try delete(entry)
     }
 
@@ -789,15 +857,15 @@ final class WikiStore: ObservableObject {
 
     // MARK: 内部
 
-    private func write(_ entry: WikiEntry) throws {
+    func write(_ entry: WikiEntry) throws {
         try entry.markdown().write(to: entry.fileURL, atomically: true, encoding: .utf8)
     }
 
-    private func ensureDirectory() throws {
+    func ensureDirectory() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
-    private func uniqueID(basedOn base: String) -> String {
+    func uniqueID(basedOn base: String) -> String {
         let sanitized = base.replacingOccurrences(of: "/", with: "-")
         var candidate = sanitized
         var suffix = 2

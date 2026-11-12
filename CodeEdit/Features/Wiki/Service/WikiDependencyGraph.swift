@@ -134,7 +134,11 @@ struct WikiDependencyGraph: Sendable {
     ///    再用「只在本仓库唯一声明」的符号做倒排，匹配出的就是跨文件依赖。
     ///
     /// 两条证据都转成单元级边，权重相加。
-    static func build(root: URL, modules: [RepoModule]) -> WikiDependencyGraph {
+    static func build(
+        root: URL,
+        modules: [RepoModule],
+        onProgress: (@Sendable (Int, Int) -> Void)? = nil
+    ) -> WikiDependencyGraph {
         var graph = WikiDependencyGraph()
         graph.modules = modules.map(\.name)
 
@@ -163,8 +167,21 @@ struct WikiDependencyGraph: Sendable {
             }
         }
 
+        let fileCount = moduleOfFile.count
+        let total = fileCount * 2
+        var completed = 0
+        var lastProgress = Date.distantPast
+        func report(_ count: Int, force: Bool = false) {
+            guard force || Date().timeIntervalSince(lastProgress) >= 0.2 else { return }
+            onProgress?(count, total)
+            lastProgress = Date()
+        }
+        report(0, force: true)
         // A) import 级证据
         for (path, fromModule) in moduleOfFile {
+            if Task.isCancelled { return graph }
+            completed += 1
+            if completed.isMultiple(of: 32) { report(completed) }
             for target in importTargets(of: root.appending(path: path), path: path) {
                 guard let toModule = resolve(
                     target: target,
@@ -185,9 +202,13 @@ struct WikiDependencyGraph: Sendable {
         }
 
         // B) 符号级证据
-        let facts = collectFacts(root: root, paths: Array(moduleOfFile.keys))
+        let facts = collectFacts(root: root, paths: Array(moduleOfFile.keys)) { count in
+            report(fileCount + count)
+        }
+        if Task.isCancelled { return graph }
         var owners: [String: [String]] = [:]
         for (path, fact) in facts {
+            if Task.isCancelled { return graph }
             for symbol in fact.declarations {
                 owners[symbol, default: []].append(path)
             }
@@ -199,6 +220,7 @@ struct WikiDependencyGraph: Sendable {
         }
 
         for (path, fact) in facts {
+            if Task.isCancelled { return graph }
             guard let fromModule = moduleOfFile[path] else { continue }
             for symbol in fact.references {
                 guard let ownerFile = uniqueOwner[symbol],
@@ -220,6 +242,7 @@ struct WikiDependencyGraph: Sendable {
         }
         .sorted { $0.count > $1.count }
 
+        report(total, force: true)
         return graph
     }
 
@@ -240,9 +263,15 @@ struct WikiDependencyGraph: Sendable {
         pattern: #"\b([A-Z][A-Za-z0-9_]{3,})\b"#
     )
 
-    private static func collectFacts(root: URL, paths: [String]) -> [String: FileFacts] {
+    private static func collectFacts(
+        root: URL,
+        paths: [String],
+        onProgress: (Int) -> Void
+    ) -> [String: FileFacts] {
         var result: [String: FileFacts] = [:]
-        for path in paths {
+        for (index, path) in paths.enumerated() {
+            if Task.isCancelled { break }
+            if index.isMultiple(of: 32) { onProgress(index) }
             let text = head(of: root.appending(path: path), limit: 32_000)
             guard !text.isEmpty else { continue }
 

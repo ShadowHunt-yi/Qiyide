@@ -20,42 +20,49 @@ struct StructureVerdict: Hashable, Sendable {
     var facts: [String] = []
     /// 这个范围内还没决定的待确认数。
     var openCount = 0
+    var violationCount = 0
+
+    static let scopeNote = "仅检查结构；业务行为与测试执行结果尚未验证。"
 
     /// - Parameters:
     ///   - path: 当前位置 `[域, 模块, 子包…]`，空数组是全仓。
-    ///   - decided: 已经做过决定的待确认标识。
+    ///   - decisions: 接受与待修改必须分开；作过决定不等于问题已解决。
     static func make(
         diff: StructureDiff,
         index: StructureIndex,
         path: [String],
-        decided: Set<String> = []
+        decisions: [String: StructureDecision] = [:]
     ) -> StructureVerdict {
         let asks = diff.asks(inside: path)
-        let open = asks.filter { !decided.contains($0.id) }.count
-        let tail = asks.isEmpty ? "没有需要你确认的" : open == 0 ? "\(asks.count) 处都已确认" : "\(open) 处等你确认"
+        let open = asks.filter { decisions[$0.id] == nil }.count
+        let violations = asks.filter { decisions[$0.id] == .violation }.count
+        let pending = [open > 0 ? "\(open) 处待确认" : nil, violations > 0 ? "\(violations) 处待修改" : nil]
+            .compactMap { $0 }.joined(separator: "、")
+        let tail = asks.isEmpty ? "没有结构项需要决定" : pending.isEmpty ? "结构项已接受" : pending
 
         guard let domainID = path.first else {
-            return overall(diff: diff, index: index, asks: asks, open: open)
+            return overall(diff: diff, index: index, asks: asks, open: open, violations: violations)
         }
         guard path.count > 1 else {
             let title = index.domain(domainID)?.title ?? domainID
             let touched = diff.touchedModules.filter { index.domain(ofModule: $0)?.id == domainID }.count
                 + diff.removedModules(domain: domainID).count
             let what = touched == 0 ? "本分支没有改动" : "改动 \(touched) 个模块"
-            return StructureVerdict(headline: "\(title)：\(what)，\(tail)。", openCount: open)
+            return StructureVerdict(headline: "\(title)：\(what)，\(tail)。", facts: [scopeNote], openCount: open, violationCount: violations)
         }
         let subpath = Array(path.dropFirst(2))
         let title = subpath.last ?? index.module(path[1])?.title ?? path[1]
         let count = diff.marks(module: path[1], under: subpath).total
         let what = count == 0 ? "本分支没有改动" : "改动 \(count) 个文件"
-        return StructureVerdict(headline: "\(title)：\(what)，\(tail)。", openCount: open)
+        return StructureVerdict(headline: "\(title)：\(what)，\(tail)。", facts: [scopeNote], openCount: open, violationCount: violations)
     }
 
     private static func overall(
         diff: StructureDiff,
         index: StructureIndex,
         asks: [StructureAsk],
-        open: Int
+        open: Int,
+        violations: Int
     ) -> StructureVerdict {
         var extras: [String] = []
         if diff.testFiles > 0 { extras.append("测试 \(diff.testFiles) 个") }
@@ -70,11 +77,11 @@ struct StructureVerdict: Hashable, Sendable {
                 let headline = diff.fileCount == 0
                     ? "相对 \(diff.targetName) 没有改动。"
                     : "这个分支没有改动源码结构。"
-                return StructureVerdict(headline: headline, facts: [counted, declared].compactMap { $0 })
+                return StructureVerdict(headline: headline, facts: [counted, declared, scopeNote].compactMap { $0 })
             }
             return StructureVerdict(
                 headline: "这个分支没有改变结构。",
-                facts: ["\(diff.changes.count) 个源码文件都是模块内实现", counted, declared].compactMap { $0 }
+                facts: ["\(diff.changes.count) 个源码文件未触发结构规则", counted, declared, scopeNote].compactMap { $0 }
             )
         }
 
@@ -96,13 +103,18 @@ struct StructureVerdict: Hashable, Sendable {
         if let declared { facts.append(declared) }
 
         let headline: String
-        if open == 0 {
-            headline = "\(asks.count) 处已全部确认，这个分支审完了。"
+        if violations > 0 {
+            headline = open > 0
+                ? "\(open) 处待确认，\(violations) 处仍待修改。"
+                : "结构项已处理，但仍有 \(violations) 处待修改。"
+        } else if open == 0 {
+            headline = "\(asks.count) 处结构项已接受，业务与测试仍需单独验证。"
         } else if open == asks.count {
             headline = "这个分支改了结构，\(open) 处等你确认。"
         } else {
             headline = "还剩 \(open) 处等你确认。"
         }
-        return StructureVerdict(headline: headline, facts: facts, openCount: open)
+        facts.append(scopeNote)
+        return StructureVerdict(headline: headline, facts: facts, openCount: open, violationCount: violations)
     }
 }

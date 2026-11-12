@@ -42,6 +42,7 @@ enum WikiDomainSeeding {
         // 先把要写的条目全部准备好，最后一次落盘。
         // 逐条 `create` 会触发 N 次全库重扫，8 个域就是 16 次重扫 + 重排。
         var prepared: [WikiEntry] = []
+        let scopeResolver = WikiSourceScopeResolver(root: store.root)
 
         for domain in graph.domains {
             let title = domain.displayTitle
@@ -67,11 +68,28 @@ enum WikiDomainSeeding {
 
             var entry = try store.prepareEntry(type: .module, title: title)
             entry.tags = ["domain", domain.kind.title]
-            entry.sources = sources(for: domain, in: graph)
+            let declaredScopes = scopes(for: domain, in: graph)
+            let resolved = try scopeResolver.resolve(declaredScopes)
+            // 未解决的歧义继续留作需核对范围，不把它丢掉或冒充实际文件。
+            entry.scopePaths = resolved.scopes + resolved.issues.compactMap(\.path)
+            entry.sources = resolved.sources
+            for issue in resolved.issues {
+                result.warnings.append("「\(title)」的范围 \(issue.path ?? "")：" + issue.detail)
+            }
+            let receipts = try WikiGenerationSources.capture(paths: entry.sources, root: store.root)
+            let scopeReceipts = try resolved.scopes.map { try WikiGenerationSources.scopeSnapshot($0, root: store.root) }
+            try WikiGenerationSources.validateScopes(scopeReceipts, root: store.root)
+            entry.provenance = .init(
+                inputDigest: WikiGenerationPolicy.fingerprint(receipts.map { $0.path + "=" + ($0.digest ?? "") }),
+                pipeline: "domain-template-v3-resolved-scopes", sources: receipts, scopeSnapshots: scopeReceipts,
+                basis: "锁定领域模型与代码范围的观察，设计意图仍待人工补充"
+            )
             entry.domains = [domain.id]
-            entry.body = body(for: domain, in: graph)
+            entry.body = WikiEntry.canonicalBody(body(for: domain, in: graph))
             entry.status = .draft
             entry.generatedBy = "领域建模"
+            entry.generationDigest = WikiKnowledgeReview.contentDigest(entry)
+            try WikiGenerationSources.validate(receipts, root: store.root)
             prepared.append(entry)
 
             result.titles.append(title)
@@ -87,8 +105,8 @@ enum WikiDomainSeeding {
 
     // MARK: 正文
 
-    /// 关联代码路径：域本身 + 展开的模块，最多 8 条，避免 frontmatter 过长。
-    private static func sources(for domain: MindNode, in graph: MindGraph) -> [String] {
+    /// 包路径是范围，不是文件证据；实际来源从范围内枚举，不能随意截掉。
+    private static func scopes(for domain: MindNode, in graph: MindGraph) -> [String] {
         var paths = domain.packages
         for child in graph.children(of: domain.id) {
             paths.append(contentsOf: child.packages)
@@ -96,15 +114,14 @@ enum WikiDomainSeeding {
         var seen = Set<String>()
         return paths
             .filter { !$0.isEmpty && seen.insert($0).inserted }
-            .prefix(8)
-            .map { $0 }
+            .sorted()
     }
 
     /// 生成正文。内部可见：验证工具需要在**不落盘**的情况下预览产物。
     static func body(for domain: MindNode, in graph: MindGraph) -> String {
         var lines: [String] = []
 
-        lines.append("> 本条目由领域建模自动生成，正文只含事实。")
+        lines.append("> 本条目由锁定的领域模型生成，包含代码观察与待核对的领域划分。")
         lines.append("> **请补充「为什么这样设计」「改动时要注意什么」，然后确认。**")
         lines.append("")
 
@@ -173,6 +190,6 @@ enum WikiDomainSeeding {
         lines.append("- 改动时必须同时关注哪些模块？")
         lines.append("")
 
-        return lines.joined(separator: "\n")
+        return WikiEntry.canonicalBody(lines.joined(separator: "\n"))
     }
 }

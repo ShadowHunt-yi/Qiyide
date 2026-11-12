@@ -38,6 +38,7 @@ final class AIReviewService: ObservableObject {
     @Published private(set) var narratives: [String: NarrativeState] = [:]
     /// 每个提交在发送前脱敏掉的敏感片段数。
     @Published private(set) var narrativeRedactions: [String: Int] = [:]
+    @Published private(set) var knowledgeContexts: [String: WikiContextSnapshot] = [:]
     /// 最近一次加载的仓库根目录，用于导出清单。
     private(set) var repositoryURL: URL?
 
@@ -45,6 +46,7 @@ final class AIReviewService: ObservableObject {
     private let narrativeStore = AINarrativeStore.shared
     private weak var workspace: WorkspaceDocument?
     private var narrativeTasks: [String: Task<Void, Never>] = [:]
+    private var narrativeGenerations: [String: UUID] = [:]
     private var cancellables = Set<AnyCancellable>()
     private var reviewedDefaultsKey: String {
         "aiReview.reviewed.\(repositoryURL?.path ?? manager.workspaceURL.path)"
@@ -129,57 +131,67 @@ final class AIReviewService: ObservableObject {
 
     /// 生成一条叙述。命中缓存直接返回，不重复计费。
     func generateNarrative(for entry: ReviewEntry, force: Bool = false) {
-        narrativeTasks[entry.id]?.cancel()
-        narrativeTasks[entry.id] = nil
-
+        cancelNarrative(for: entry)
         guard let provider = narrativeStore.makeProvider() else {
             narratives[entry.id] = .unavailable(narrativeStore.blockedReason ?? "未配置模型")
             return
         }
-
-        let key = cacheKey(for: entry)
-        if !force, let cached = AINarrativeCache.load(key: key) {
-            narratives[entry.id] = .ready(cached, cached: true)
-            return
-        }
-
-        let prompt = AINarrativePrompt.user(
-            for: entry,
-            diff: patches[entry.id] ?? "",
-            limit: narrativeStore.configuration.normalized().diffCharacters
-        )
-        narrativeRedactions[entry.id] = prompt.redactions
-        guard let request = narrativeStore.makeRequest(
-            system: AINarrativePrompt.system(),
-            user: prompt.text
-        ) else {
-            narratives[entry.id] = .unavailable(narrativeStore.blockedReason ?? "未配置模型")
-            return
-        }
-
+        let generation = UUID()
+        narrativeGenerations[entry.id] = generation
+        knowledgeContexts[entry.id] = nil
+        let root = repositoryURL ?? manager.workspaceURL
+        let paths = entry.files.map(\.path)
+        let patch = patches[entry.id] ?? ""
+        let limit = narrativeStore.configuration.normalized().diffCharacters
         narratives[entry.id] = .streaming("")
         narrativeTasks[entry.id] = Task { [weak self] in
+            let knowledge = await WikiKnowledgeContext.load(root: root, paths: paths)
+            guard let self, !Task.isCancelled, self.narrativeGenerations[entry.id] == generation else { return }
+            defer {
+                if self.narrativeGenerations[entry.id] == generation {
+                    self.narrativeTasks[entry.id] = nil
+                    self.narrativeGenerations[entry.id] = nil
+                }
+            }
+            self.knowledgeContexts[entry.id] = knowledge
+            let key = self.cacheKey(for: entry, knowledge: knowledge.fingerprint, limit: limit)
+            if !force, let cached = AINarrativeCache.load(key: key) {
+                self.narratives[entry.id] = .ready(cached, cached: true)
+                return
+            }
+            let prompt = AINarrativePrompt.user(for: entry, diff: patch, limit: limit, knowledge: knowledge)
+            self.narrativeRedactions[entry.id] = prompt.redactions
+            guard let request = self.narrativeStore.makeRequest(system: AINarrativePrompt.system(), user: prompt.text) else {
+                self.narratives[entry.id] = .unavailable("模型配置已变化，请重试")
+                return
+            }
             var buffer = ""
             do {
                 for try await chunk in provider.stream(request) {
-                    if Task.isCancelled { return }
+                    guard !Task.isCancelled, self.narrativeGenerations[entry.id] == generation else { return }
                     buffer += chunk
-                    self?.narratives[entry.id] = .streaming(buffer)
+                    self.narratives[entry.id] = .streaming(buffer)
                 }
                 let text = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { throw AINarrativeError.emptyResponse }
-                self?.narratives[entry.id] = .ready(text, cached: false)
+                // 生成期间代码或知识可能又变了；不能把迟到结果保存成当前依据下的解释。
+                let current = await WikiKnowledgeContext.load(root: root, paths: paths)
+                guard !Task.isCancelled, self.narrativeGenerations[entry.id] == generation else { return }
+                guard current.fingerprint == knowledge.fingerprint else {
+                    self.narratives[entry.id] = .failed("知识依据在生成期间发生变化，请重新生成；本次结果未保存。")
+                    return
+                }
+                self.narratives[entry.id] = .ready(text, cached: false)
                 AINarrativeCache.save(text, key: key)
-            } catch AINarrativeError.cancelled {
-                self?.narratives[entry.id] = .idle
             } catch {
-                self?.narratives[entry.id] = .failed(AINarrativeError.describe(error))
+                guard !Task.isCancelled, self.narrativeGenerations[entry.id] == generation else { return }
+                self.narratives[entry.id] = .failed(AINarrativeError.describe(error))
             }
-            self?.narrativeTasks[entry.id] = nil
         }
     }
 
     func cancelNarrative(for entry: ReviewEntry) {
+        narrativeGenerations[entry.id] = nil
         narrativeTasks[entry.id]?.cancel()
         narrativeTasks[entry.id] = nil
         if case .streaming = narratives[entry.id] {
@@ -193,7 +205,8 @@ final class AIReviewService: ObservableObject {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                guard let self, self.narrativeTasks.isEmpty else { return }
+                guard let self else { return }
+                self.cancelAllNarratives()
                 self.primeNarratives()
             }
             .store(in: &cancellables)
@@ -211,14 +224,9 @@ final class AIReviewService: ObservableObject {
             narratives = next
             return
         }
+        // 缓存必须等当前知识重新校验后才读取，不能仅凭提交哈希展示旧依据下的叙述。
         var next: [String: NarrativeState] = [:]
-        for entry in entries {
-            if let cached = AINarrativeCache.load(key: cacheKey(for: entry)) {
-                next[entry.id] = .ready(cached, cached: true)
-            } else {
-                next[entry.id] = .idle
-            }
-        }
+        for entry in entries { next[entry.id] = .idle }
         narratives = next
     }
 
@@ -226,19 +234,21 @@ final class AIReviewService: ObservableObject {
         narrativeStore.isReady ? .idle : .unavailable(narrativeStore.blockedReason ?? "未配置模型")
     }
 
-    private func cacheKey(for entry: ReviewEntry) -> String {
+    private func cacheKey(for entry: ReviewEntry, knowledge: String, limit: Int) -> String {
         let endpoint = narrativeStore.resolvedEndpoint()
         return AINarrativeCache.key(
             hash: entry.id,
             endpoint: endpoint.baseURL,
             model: endpoint.model,
-            promptVersion: AINarrativePrompt.version
+            promptVersion: AINarrativePrompt.version + "|knowledge:" + knowledge + "|diffLimit:\(limit)"
         )
     }
 
     private func cancelAllNarratives() {
         for task in narrativeTasks.values { task.cancel() }
         narrativeTasks.removeAll()
+        narrativeGenerations.removeAll()
+        knowledgeContexts.removeAll()
     }
 
     // MARK: - 审阅状态

@@ -138,7 +138,7 @@ final class TaskNotificationHandler: ObservableObject {
             "id": model.id,
             "title": model.title,
             "message": model.message as Any,
-            "percentage": model.percentage as Any,
+            "percentage": model.percentage.map { $0 as Any } ?? NSNull(),
             "isLoading": model.isLoading,
             "action": action.rawValue,
             "workspace": toWorkspace as Any
@@ -172,8 +172,9 @@ final class TaskNotificationHandler: ObservableObject {
               let action = Action(rawValue: actionRaw) else { return }
 
         // If a workspace is specified and doesn't match, don't do anything with this task.
-        if let workspaceURL = userInfo["workspace"] as? URL, workspaceURL != self.workspaceURL {
-            return
+        if let workspaceURL = userInfo["workspace"] as? URL {
+            let project = workspaceURL.standardizedFileURL.resolvingSymlinksInPath()
+            guard project == self.workspaceURL?.standardizedFileURL.resolvingSymlinksInPath() else { return }
         }
 
         switch action {
@@ -227,7 +228,9 @@ final class TaskNotificationHandler: ObservableObject {
                 if let message = task["message"] as? String {
                     self.notifications[index].message = message
                 }
-                if let percentage = task["percentage"] as? Double {
+                if task["percentage"] is NSNull {
+                    self.notifications[index].percentage = nil
+                } else if let percentage = task["percentage"] as? Double {
                     self.notifications[index].percentage = percentage
                 }
                 if let isLoading = task["isLoading"] as? Bool {

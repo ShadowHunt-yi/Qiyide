@@ -157,10 +157,13 @@ struct StructureAskList: View {
     let onOpenFile: (String) -> Void
     let onDecide: (StructureAsk, StructureDecision?) -> Void
     let onAdopt: (StructureAsk) -> Void
+    var knowledgeEntries: [WikiEntry] = []
+    var knowledgeReport = WikiKnowledgeReport()
+    var onSelectKnowledge: (String) -> Void = { _ in }
 
     var body: some View {
-        let open = asks.filter { decisions[$0.id] == nil }
-        let decided = asks.filter { decisions[$0.id] != nil }
+        let open = asks.filter { decisions[$0.id] != .accepted }
+        let decided = asks.filter { decisions[$0.id] == .accepted }
         VStack(alignment: .leading, spacing: 6) {
             ForEach(open) { ask in
                 StructureAskRow(
@@ -169,7 +172,11 @@ struct StructureAskList: View {
                     onNavigate: onNavigate,
                     onOpenFile: onOpenFile,
                     onDecide: onDecide,
-                    onAdopt: onAdopt
+                    onAdopt: onAdopt,
+                    decision: decisions[ask.id],
+                    knowledgeEntries: knowledgeEntries,
+                    knowledgeReport: knowledgeReport,
+                    onSelectKnowledge: onSelectKnowledge
                 )
             }
             if !decided.isEmpty {
@@ -240,6 +247,10 @@ struct StructureAskRow: View {
     let onOpenFile: (String) -> Void
     let onDecide: (StructureAsk, StructureDecision?) -> Void
     let onAdopt: (StructureAsk) -> Void
+    var decision: StructureDecision? = nil
+    var knowledgeEntries: [WikiEntry] = []
+    var knowledgeReport = WikiKnowledgeReport()
+    var onSelectKnowledge: (String) -> Void = { _ in }
 
     @State private var showsEvidence = false
 
@@ -269,6 +280,18 @@ struct StructureAskRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 6)
                 links
+            }
+            StructureKnowledgeReferences(
+                ask: ask, entries: knowledgeEntries, report: knowledgeReport, onSelect: onSelectKnowledge
+            )
+            if decision == .violation {
+                HStack {
+                    Label("待修改 · 尚未解决", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(StructurePalette.deleted)
+                    Spacer()
+                    Button("撤销判断") { onDecide(ask, nil) }.buttonStyle(.plain)
+                }
+                .font(.system(size: 10))
             }
             if showsEvidence {
                 evidence

@@ -27,6 +27,13 @@ enum WikiCurationStatus: String, Codable {
     case failed
 }
 
+struct WikiModuleCheckpoint: Codable, Sendable {
+    var basisDigest: String
+    var entryID: String?
+    var noKnowledgeReason: String?
+    var entryDigest: String?
+}
+
 struct WikiCurationJob: Codable {
 
     var status: WikiCurationStatus = .idle
@@ -44,10 +51,35 @@ struct WikiCurationJob: Codable {
     /// 模块名 → 一句话职责。这是跨轮推断「模块关系」时唯一稳定的上下文：
     /// 只给模块名，模型只能瞎猜；给了已建模块的职责，才能写出「依赖 X」。
     var moduleNotes: [String: String] = [:]
+    /// 新字段为 optional：旧检查点保留可读，但无版本的旧摘要不进入提示词。
+    var moduleCheckpoints: [String: WikiModuleCheckpoint]?
+    var pipelineKey: String?
+    var loadIssue: String?
+    /// 历史总成本永远保留；用户每次启动另开一份有限 run，不累加成永久门槛。
+    var lastRun: WikiCurationRun?
+    /// 升级旧格式时保留旧口径，不把预览的当前完成数写回成“旧记录为 0”。
+    var legacyProgress: WikiLegacyCurationProgress?
+    /// 旧模块摘要没有输入版本，不参与当前推断，但升级时也不能把已付费成果丢掉。
+    var legacyModuleNotes: [String: String]?
 
     /// 上次扫描时的文件总数，用于界面概览与「是否还有剩余」的判定。
     var filesTotal: Int = 0
     var filesDone: Int = 0
+
+    mutating func preserveLegacyProgressIfNeeded() {
+        guard legacyProgress == nil, pipelineKey == nil, moduleCheckpoints == nil,
+              round > 0 || callsUsed > 0 || filesDone > 0 else { return }
+        legacyProgress = .init(filesDone: filesDone, filesTotal: filesTotal, recordedAt: updatedAt)
+        if legacyModuleNotes == nil { legacyModuleNotes = moduleNotes }
+    }
+
+    mutating func beginRun(requestLimit: Int, minutesLimit: Int, at date: Date) {
+        preserveLegacyProgressIfNeeded()
+        lastRun = .init(startedAt: date.timeIntervalSince1970,
+                        requestLimit: max(1, requestLimit), minutesLimit: max(1, minutesLimit))
+        status = .running
+        lastError = nil
+    }
 
     mutating func note(_ module: String, responsibility: String) {
         let trimmed = responsibility.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -61,9 +93,10 @@ struct WikiCurationJob: Codable {
     }
 
     /// 供 relate 阶段使用的「已知模块」摘要，控制在 30 条以内。
-    func knownModuleContext(excluding module: String) -> String {
+    func knownModuleContext(excluding module: String, versions: [String: String] = [:]) -> String {
         let items = moduleNotes
-            .filter { $0.key != module }
+            .filter { $0.key != module && moduleCheckpoints?[$0.key]?.basisDigest == versions[$0.key]
+                && versions[$0.key] != nil }
             .sorted { $0.key < $1.key }
             .prefix(30)
             .map { "- \($0.key)：\($0.value)" }
@@ -77,26 +110,26 @@ struct WikiCurationJob: Codable {
     }
 
     static func load(root: URL) -> WikiCurationJob {
-        guard let data = try? Data(contentsOf: url(root: root)),
-              let job = try? JSONDecoder().decode(WikiCurationJob.self, from: data) else {
-            return WikiCurationJob()
+        let target = url(root: root)
+        guard FileManager.default.fileExists(atPath: target.path) else { return .init() }
+        do {
+            var job = try JSONDecoder().decode(Self.self, from: Data(contentsOf: target))
+            if job.status == .running { job.status = .paused }
+            return job
+        } catch {
+            var failed = Self()
+            failed.status = .failed
+            failed.loadIssue = "建档检查点无法读取：\(error.localizedDescription)；原文件未覆盖。"
+            failed.lastError = failed.loadIssue
+            return failed
         }
-        var normalized = job
-        // 进程已经不在跑了还读得到 `running`，只能说明上次是被杀或崩溃。
-        // 归一化成 paused，否则界面会一直显示一个永远不会推进的「运行中」。
-        if normalized.status == .running {
-            normalized.status = .paused
-        }
-        return normalized
     }
 
-    func save(root: URL) {
+    func save(root: URL) throws {
+        guard loadIssue == nil else { throw WikiGenerationError.invalidOutput(loadIssue ?? "检查点无法读取") }
         let target = Self.url(root: root)
-        try? FileManager.default.createDirectory(
-            at: target.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        guard let data = try? JSONEncoder().encode(self) else { return }
-        try? data.write(to: target, options: .atomic)
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(self).write(to: target, options: .atomic)
     }
 }

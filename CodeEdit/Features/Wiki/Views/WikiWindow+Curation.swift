@@ -12,7 +12,7 @@ import Foundation
 
 extension WikiWindowView {
 
-    enum CurationSource {
+    enum CurationSource: Sendable {
         case workingTree
         case lastCommit
         case currentFile
@@ -29,41 +29,46 @@ extension WikiWindowView {
     }
 
     func curate(_ source: CurationSource) {
-        guard var input = curationInput(for: source) else {
-            curatorError = emptyReason(for: source)
-            return
-        }
-        // 域上下文：按本次改动的文件路径匹配。有了它，模型知道自己在给哪个域写，
-        // 产出的草稿也直接挂在域上——不用再跑一遍「域归属」。
-        input.domain = domainContext(for: input.files)
+        guard !curating else { return }
         guard AINarrativeStore.shared.isReady else {
             curatorError = AINarrativeStore.shared.blockedReason ?? "模型未配置"
             return
         }
+        let root = store.root
+        let makeInput: @Sendable () -> WikiCurationInput?
+        switch source {
+        case .workingTree: makeInput = { WikiChangeSource.workingTree(root: root) }
+        case .lastCommit: makeInput = { WikiChangeSource.lastCommit(root: root) }
+        case .currentFile:
+            let paths = activeFileURL.map { [relativePath(of: $0)] } ?? []
+            makeInput = { WikiChangeSource.files(root: root, paths: paths) }
+        case .selectedEntrySources:
+            let paths = selectedEntrySources
+            makeInput = { WikiChangeSource.files(root: root, paths: paths) }
+        }
+        // 先显示整理状态，再把 Git/文件哈希放后台；点击后不能先卡住再出现反馈。
         curating = true
         curatorError = nil
         curatorMessage = nil
         let label = AINarrativeStore.shared.providerLabel
         Task {
+            defer { curating = false }
             do {
-                let draft = try await WikiCurator.propose(
-                    input: input,
-                    existing: store.entries
-                )
-                let applied = try store.applyDraft(
-                    draft,
-                    generatedBy: label,
-                    sources: Array(input.files.prefix(8)),
-                    domainID: input.domain?.id
-                )
+                guard var input = try await WikiBackgroundWork.run(makeInput) else {
+                    curatorError = emptyReason(for: source)
+                    return
+                }
+                input.domain = domainContext(for: input.files)
+                let draft = try await WikiCurator.propose(input: input, existing: store.entries, root: root)
+                if draft.action == .skip {
+                    curatorMessage = "无需沉淀知识：" + draft.reason
+                    return
+                }
+                let applied = try store.applyDraft(draft, generatedBy: label, sources: draft.sources, domainID: input.domain?.id)
                 selection = applied.id
-                curatorMessage = draft.reason.isEmpty
-                    ? "已生成草稿：\(applied.title)"
+                curatorMessage = draft.reason.isEmpty ? "已生成草稿：\(applied.title)"
                     : "已生成草稿：\(applied.title)（\(draft.reason)）"
-            } catch {
-                curatorError = error.localizedDescription
-            }
-            curating = false
+            } catch { curatorError = error.localizedDescription }
         }
     }
 

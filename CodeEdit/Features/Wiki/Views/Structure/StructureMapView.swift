@@ -27,6 +27,9 @@ struct StructureMapView: View {
     @Binding var selectedDomain: String?
     /// 参数是仓库相对路径。
     let onOpenFile: (String) -> Void
+    let knowledgeEntries: [WikiEntry]
+    let knowledgeReport: WikiKnowledgeReport
+    let onSelectKnowledge: (String) -> Void
     /// 离屏渲染时为真：数据由调用方给定，不再自己加载。
     private let isStatic: Bool
 
@@ -61,12 +64,18 @@ struct StructureMapView: View {
         preloaded: StructureIndex? = nil,
         preloadedDiff: StructureDiff? = nil,
         preloadedDecisions: [String: StructureDecision] = [:],
-        initialPath: [String] = []
+        initialPath: [String] = [],
+        knowledgeEntries: [WikiEntry] = [],
+        knowledgeReport: WikiKnowledgeReport = .init(),
+        onSelectKnowledge: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.root = root
         _selectedDomain = selectedDomain
         self.onOpenFile = onOpenFile
+        self.knowledgeEntries = knowledgeEntries
+        self.knowledgeReport = knowledgeReport
+        self.onSelectKnowledge = onSelectKnowledge
         isStatic = preloaded != nil
         _index = State(initialValue: preloaded ?? .empty)
         _path = State(initialValue: initialPath)
@@ -140,7 +149,7 @@ struct StructureMapView: View {
     /// 当前生效的叠加层。只看地图、或增量还没算出来时为 nil。
     private var overlay: StructureOverlay? {
         guard diffToggle.wrappedValue, let diff else { return nil }
-        return StructureOverlay(diff: diff, openAsks: diff.asks.filter { decisions[$0.id] == nil })
+        return StructureOverlay(diff: diff, openAsks: diff.asks.filter { decisions[$0.id] != .accepted })
     }
 
     // MARK: 内容
@@ -201,7 +210,7 @@ struct StructureMapView: View {
             diff: overlay.diff,
             index: index,
             path: path,
-            decided: Set(decisions.keys)
+            decisions: decisions
         ))
         if let notice {
             Text(notice)
@@ -216,7 +225,10 @@ struct StructureMapView: View {
                 onNavigate: { path = $0 },
                 onOpenFile: onOpenFile,
                 onDecide: decide,
-                onAdopt: adopt
+                onAdopt: adopt,
+                knowledgeEntries: knowledgeEntries,
+                knowledgeReport: knowledgeReport,
+                onSelectKnowledge: onSelectKnowledge
             )
         }
     }

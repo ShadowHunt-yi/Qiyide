@@ -235,10 +235,7 @@ extension WikiWindowView {
                         .help(entry.title)
                     HStack(spacing: 5) {
                         Text(entry.type.title)
-                        if entry.isDraft {
-                            Text("草稿")
-                                .foregroundStyle(.orange)
-                        }
+                        WikiKnowledgeBadge(assessment: store.assessment(for: entry))
                         // 每行都查一次度数：必须 O(1)，否则列表是 O(n²)。
                         let degree = store.graph.degree(of: entry.id)
                         if degree > 0 {
@@ -263,10 +260,10 @@ extension WikiWindowView {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("确认") { store.confirm(ids: [entry.id]) }
-                .disabled(!entry.isDraft)
+            Button("核对后确认") { store.confirm(ids: [entry.id]) }
+                .disabled(entry.proposalFor != nil || store.assessment(for: entry).state.canReference)
             Button("丢弃草稿") { store.discardDrafts(ids: [entry.id]) }
-                .disabled(!entry.isDraft)
+                .disabled(!entry.isDraft || entry.protectsHumanContent)
             Divider()
             Button("删除…") { deleteTarget = entry }
             Divider()

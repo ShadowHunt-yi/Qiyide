@@ -16,8 +16,8 @@ import SwiftUI
 enum WikiWindowPresenter {
     private static var openWindows: [NSWindow] = []
 
-    static func show(workspace: WorkspaceDocument?) {
-        guard let workspace, let root = workspace.fileURL else {
+    static func show(workspace: WorkspaceDocument?, root repositoryRoot: URL? = nil, selectedEntryID: String? = nil) {
+        guard let workspace, let root = repositoryRoot ?? workspace.fileURL else {
             NotificationManager.shared.post(
                 iconSymbol: "info.circle",
                 title: NSLocalizedString("Knowledge Base", comment: ""),
@@ -34,8 +34,10 @@ enum WikiWindowPresenter {
             backing: .buffered,
             defer: false
         )
-        window.title = NSLocalizedString("Knowledge Base", comment: "")
-        window.contentView = NSHostingView(rootView: WikiWindowView(root: root, workspace: workspace))
+        window.title = root.lastPathComponent + " · " + NSLocalizedString("Knowledge Base", comment: "")
+        window.contentView = NSHostingView(rootView: WikiWindowView(
+            root: root, workspace: workspace, initiallySelectedEntry: selectedEntryID
+        ))
         window.center()
         window.isReleasedWhenClosed = false
         openWindows.removeAll { !$0.isVisible }
@@ -65,6 +67,11 @@ struct WikiWindowView: View {
     /// 条目是「人写的知识」，领域模型是「算出来的结构」，生命周期不同
     /// （模型会被重新识别覆盖，条目不会），混成一个 store 反而危险。
     @StateObject var domains: DomainModelStore
+    @StateObject var architectureTask: WikiArchitectureRunner
+    @Environment(\.openWindow) var openWindow
+    @State var showsArchitectureTask = false
+    @State var dismissedArchitectureTask: UUID?
+    @State var selectedArchitectureDomain: String?
     /// 建档是 App 级长任务：这里只订阅，不持有。关掉这个窗口任务也不会中断。
     @ObservedObject var ingestion = WikiCurationRunner.shared
     @State var showIngest = false
@@ -90,10 +97,11 @@ struct WikiWindowView: View {
     @State var showBatchDelete = false
     @State var batchNotice: String?
 
-    /// 中间栏的四种看法：
+    /// 同一个项目的五种资源视角，各自加载与显示空态：
     /// 导图看「域怎么划」，结构看「现在的代码长什么样」，
     /// 图谱看「知识谁连着谁」，架构看「系统分几层」。
     enum CenterMode: String, CaseIterable, Identifiable {
+        case knowledge
         case mindmap
         case structure
         case graph
@@ -101,21 +109,24 @@ struct WikiWindowView: View {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .mindmap: return "导图"
-            case .structure: return "结构"
-            case .graph: return "图谱"
-            case .architecture: return "架构"
+            case .knowledge: return "知识条目"
+            case .mindmap: return "领域模型"
+            case .structure: return "代码结构"
+            case .graph: return "知识关系"
+            case .architecture: return "系统架构"
             }
         }
     }
 
-    @State var centerMode: CenterMode = .mindmap
-    @State var buildingArchitecture = false
-    @State var architectureError: String?
+    @State var centerMode: CenterMode = .knowledge
+    var buildingArchitecture: Bool { architectureTask.snapshot.isActive }
     @State var editing: WikiEntry?
     @State var deleteTarget: WikiEntry?
     @State var showDraftsOnly = false
+    @State var showKnowledgeContext = false
+    @State var showsFullOriginalKnowledge = false
     @State var curating = false
+    @State var sourceBindingID: String?
     @State var curatorMessage: String?
     @State var curatorError: String?
 
@@ -124,7 +135,10 @@ struct WikiWindowView: View {
         workspace: WorkspaceDocument?,
         autoLoad: Bool = false,
         initiallySelectedDomain: String? = nil,
-        initialCenterMode: CenterMode = .mindmap
+        initialCenterMode: CenterMode = .knowledge,
+        initiallySelectedEntry: String? = nil,
+        initiallySelectedArchitectureDomain: String? = nil,
+        architectureRunner: WikiArchitectureRunner? = nil
     ) {
         self.workspace = workspace
         let wikiStore = WikiStore(root: root)
@@ -135,29 +149,37 @@ struct WikiWindowView: View {
         }
         _store = StateObject(wrappedValue: wikiStore)
         _domains = StateObject(wrappedValue: DomainModelStore(root: root))
+        _architectureTask = StateObject(wrappedValue: architectureRunner ?? WikiArchitectureRunner.forProject(root))
         _selectedDomain = State(initialValue: initiallySelectedDomain)
+        _selection = State(initialValue: initiallySelectedEntry)
         _centerMode = State(initialValue: initialCenterMode)
+        _selectedArchitectureDomain = State(initialValue: initiallySelectedArchitectureDomain)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            stageStrip
+            modeNavigation
             Divider()
+            architectureTaskBanner
+            otherWorkBanner
+            if centerMode == .knowledge {
+                knowledgeStatusStrip
+                Divider()
+            } else if centerMode == .mindmap {
+                stageStrip
+                Divider()
+            }
             if let curatorMessage {
-                statusStrip(curatorMessage, color: .secondary, symbol: "sparkles")
+                statusStrip(curatorMessage, color: .secondary, symbol: "sparkles") { self.curatorMessage = nil }
                 Divider()
             }
             if let curatorError {
-                statusStrip(curatorError, color: .red, symbol: "exclamationmark.triangle")
+                statusStrip(curatorError, color: .red, symbol: "exclamationmark.triangle") { self.curatorError = nil }
                 Divider()
             }
-            if let architectureError {
-                statusStrip(architectureError, color: .red, symbol: "exclamationmark.triangle")
-                Divider()
-            }
-            if multiSelection.count > 1 {
+            if centerMode == .knowledge && multiSelection.count > 1 {
                 batchBar
                 Divider()
             }
@@ -168,8 +190,33 @@ struct WikiWindowView: View {
         .task {
             if !store.isLoaded { await store.reload() }
         }
+        .onChange(of: store.actionError) { _, error in
+            if let error { curatorError = error }
+        }
         .onChange(of: selection) { _, _ in
             editing = nil
+            showsFullOriginalKnowledge = false
+        }
+        .onChange(of: architectureTask.completionID) { _, id in
+            guard id != nil else { return }
+            selectedArchitectureDomain = nil
+            Task { await store.reload() }
+        }
+        .sheet(isPresented: $showsArchitectureTask) {
+            WikiArchitectureTaskDetails(
+                runner: architectureTask,
+                onClose: { showsArchitectureTask = false },
+                onResult: { showsArchitectureTask = false; centerMode = .architecture },
+                onSettings: openArchitectureSettings
+            )
+        }
+        .sheet(isPresented: $showKnowledgeContext) {
+            WikiKnowledgeContextSheet(root: store.root, entryIDs: Set(filteredEntries.map(\.id))) {
+                showKnowledgeContext = false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.refreshKnowledge()
         }
         .sheet(isPresented: $showIngest, onDismiss: { Task { await store.reload() } }) {
             WikiIngestSheet(runner: ingestion, store: store) {
@@ -247,7 +294,17 @@ struct WikiWindowView: View {
 
     @ViewBuilder
     var content: some View {
-        if let message = store.errorMessage {
+        if centerMode == .architecture {
+            HSplitView {
+                centerPane.frame(minWidth: 480)
+                if let name = selectedArchitectureDomain,
+                   let domain = store.architecture.domains.first(where: { $0.name == name }) {
+                    architectureDomainDetail(domain).frame(minWidth: 240, idealWidth: 280, maxWidth: 360)
+                }
+            }
+        } else if centerMode == .structure && domains.graph.isEmpty {
+            centerPane
+        } else if let message = store.errorMessage, centerMode == .knowledge || centerMode == .graph {
             VStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 22))
@@ -258,7 +315,7 @@ struct WikiWindowView: View {
                 Button("重试") { Task { await store.reload() } }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if !store.isLoaded {
+        } else if !store.isLoaded && (centerMode == .knowledge || centerMode == .graph) {
             // 重扫搬到了后台：刚打开的一两百毫秒里三栏都是空的，
             // 不给指示就像「知识库丢了」。
             VStack(spacing: 8) {
@@ -268,8 +325,6 @@ struct WikiWindowView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if store.entries.isEmpty && domains.graph.isEmpty {
-            emptyState
         } else {
             HSplitView {
                 listPane.frame(minWidth: 220, idealWidth: 260, maxWidth: 340)
@@ -319,7 +374,7 @@ struct WikiWindowView: View {
 
 
 
-    func statusStrip(_ text: String, color: Color, symbol: String) -> some View {
+    func statusStrip(_ text: String, color: Color, symbol: String, onDismiss: @escaping () -> Void) -> some View {
         HStack(spacing: 6) {
             Image(systemName: symbol).font(.system(size: 10))
             Text(text)
@@ -327,10 +382,7 @@ struct WikiWindowView: View {
                 .lineLimit(2)
                 .textSelection(.enabled)
             Spacer(minLength: 4)
-            Button {
-                curatorMessage = nil
-                curatorError = nil
-            } label: {
+            Button(action: onDismiss) {
                 Image(systemName: "xmark").font(.system(size: 9))
             }
             .buttonStyle(.plain)

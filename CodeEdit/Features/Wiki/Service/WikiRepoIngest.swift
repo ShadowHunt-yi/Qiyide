@@ -111,6 +111,7 @@ enum WikiRepoIngest {
         }
 
         for case let url as URL in enumerator {
+            if Task.isCancelled { return ([], 0) }
             let name = url.lastPathComponent
             if skippedDirectories.contains(name) {
                 enumerator.skipDescendants()
@@ -129,7 +130,6 @@ enum WikiRepoIngest {
 
             let relative = relativePath(of: url, root: root)
             let bytes = values.fileSize ?? 0
-            guard bytes > 0 else { continue }
 
             let scored = score(
                 path: relative,
@@ -141,6 +141,7 @@ enum WikiRepoIngest {
 
         // 切分粒度由结构决定：够内聚的目录整块成单元，不够就下钻到文件。
         // 固定三段路径会把 `Features/Wiki` 切对，但别的仓库就会切错。
+        if Task.isCancelled { return ([], 0) }
         let allUnits = WikiKnowledgeSegmentation.segment(files: candidates)
         let topUnits = Array(allUnits.prefix(maxModules))
         let selected = selectUnits(topUnits, budget: maxFiles)
@@ -332,10 +333,14 @@ enum WikiRepoIngest {
     /// 小文件读全文；大文件读「前 120 行 + 声明行」，这比截断前 N 行更有效：
     /// 一个 3000 行的控制器，前 120 行可能全是 license 和 import，声明行才承载结构。
     static func excerpt(for file: RepoFileCandidate, root: URL) -> String? {
-        let url = root.appending(path: file.path)
-        guard let text = try? String(contentsOf: url, encoding: .utf8), !text.isEmpty else {
-            return nil
-        }
+        guard let read = try? WikiGenerationSources.read(path: file.path, root: root),
+              let text = String(data: read.data, encoding: .utf8) else { return nil }
+        return excerpt(text: text, file: file)
+    }
+
+    /// 输入片段与内容凭据来自同一批字节，不能分别读取两次。
+    static func excerpt(text: String, file: RepoFileCandidate) -> String {
+        if text.isEmpty { return "（空文件，没有可观察的实现）" }
         guard text.count > excerptCharLimit else { return text }
 
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
@@ -366,26 +371,24 @@ enum WikiRepoIngest {
     ///
     /// 这一步是纯 IO 与字符串处理，放在 nonisolated 函数里执行，不占主线程。
     static func prepareJobs(
-        batches: [[RepoFileCandidate]],
-        root: URL,
-        base: AINarrativeRequest,
-        kind: AIProviderKind
-    ) -> [WikiBatchJob] {
-        batches.enumerated().compactMap { index, batch -> WikiBatchJob? in
+        batches: [[RepoFileCandidate]], root: URL, base: AINarrativeRequest, kind: AIProviderKind
+    ) throws -> [WikiBatchJob] {
+        try batches.enumerated().map { index, batch in
             var sections: [String] = []
-            var paths: [String] = []
+            var receipts: [WikiSourceSnapshot] = []
             for file in batch {
-                guard let excerpt = excerpt(for: file, root: root) else { continue }
-                sections.append("=== \(file.path) ===\n" + excerpt)
-                paths.append(file.path)
+                try Task.checkCancellation()
+                let read = try WikiGenerationSources.read(path: file.path, root: root)
+                guard let text = String(data: read.data, encoding: .utf8) else {
+                    throw WikiGenerationError.unreadableSource(file.path)
+                }
+                sections.append("=== \(file.path) ===\n" + excerpt(text: text, file: file))
+                receipts.append(read.source)
             }
-            guard !sections.isEmpty else { return nil }
-            return WikiBatchJob(
-                id: "batch-\(index)",
-                kind: kind,
-                request: base.withUserPrompt(sections.joined(separator: "\n\n")),
-                paths: paths
-            )
+            let redacted = AINarrativeRedactor.redact(sections.joined(separator: "\n\n")).text
+            return WikiBatchJob(id: "batch-\(index)", kind: kind, request: base.withUserPrompt(redacted),
+                                paths: batch.map(\.path), sources: receipts,
+                                pipelineKey: WikiGenerationPolicy.key(for: base, kind: kind))
         }
     }
 

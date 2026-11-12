@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import OSLog
 
 /// The Theme View Model. Accessible via the singleton "``ThemeModel/shared``".
 ///
@@ -17,6 +18,17 @@ import UniformTypeIdentifiers
 /// ```
 final class ThemeModel: ObservableObject {
     static let shared: ThemeModel = .init()
+    static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app.qiyide", category: "Themes")
+    @Published private(set) var themeLoadWarning: String?
+
+    func resolvedTheme(for colorScheme: ColorScheme) -> Theme {
+        Theme.resolved(selected: selectedTheme, available: themes, appearance: colorScheme == .dark ? .dark : .light)
+    }
+
+    func reportThemeLoad(_ message: String?) {
+        themeLoadWarning = message
+        if let message { Self.logger.error("\(message, privacy: .public)") }
+    }
 
     @AppSettings(\.theme)
     var settings
@@ -55,10 +67,8 @@ final class ThemeModel: ObservableObject {
     /// Used for auto-switching theme to match macOS system appearance
     @Published var selectedLightTheme: Theme? {
         didSet {
-            DispatchQueue.main.async {
-                Settings.shared
-                    .preferences.theme.selectedLightTheme = self.selectedLightTheme?.name ?? "Broken"
-            }
+            guard let name = selectedLightTheme?.name else { return }
+            DispatchQueue.main.async { Settings.shared.preferences.theme.selectedLightTheme = name }
         }
     }
 
@@ -66,10 +76,8 @@ final class ThemeModel: ObservableObject {
     /// Used for auto-switching theme to match macOS system appearance
     @Published var selectedDarkTheme: Theme? {
         didSet {
-            DispatchQueue.main.async {
-                Settings.shared
-                    .preferences.theme.selectedDarkTheme = self.selectedDarkTheme?.name ?? "Broken"
-            }
+            guard let name = selectedDarkTheme?.name else { return }
+            DispatchQueue.main.async { Settings.shared.preferences.theme.selectedDarkTheme = name }
         }
     }
 
@@ -85,9 +93,8 @@ final class ThemeModel: ObservableObject {
     /// The currently selected ``Theme``.
     @Published var selectedTheme: Theme? {
         didSet {
-            DispatchQueue.main.async {
-                Settings[\.theme].selectedTheme = self.selectedTheme?.name
-            }
+            guard let name = selectedTheme?.name else { return }
+            DispatchQueue.main.async { Settings[\.theme].selectedTheme = name }
         }
     }
 

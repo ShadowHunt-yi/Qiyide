@@ -152,7 +152,7 @@ struct CodeFileView: View {
     }
 
     private var currentTheme: Theme {
-        themeModel.selectedTheme ?? themeModel.themes.first!
+        themeModel.resolvedTheme(for: colorScheme)
     }
 
     @State private var font: NSFont = Settings[\.textEditing].font.current

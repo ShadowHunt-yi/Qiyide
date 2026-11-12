@@ -15,7 +15,10 @@
 import AppKit
 
 final class WikiDevDelegate: NSObject, NSApplicationDelegate {
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // 离屏验证有多个窗口和异步收尾，由验证入口明确退出，不能在中途自动成功退出。
+        ProcessInfo.processInfo.environment["WIKI_DEV_OPEN"] != nil
+    }
 }
 
 let application = NSApplication.shared
@@ -40,7 +43,11 @@ if let path = environment["WIKI_DEV_OPEN"] {
     DomainVerification.runIfRequested()
     WikiWindowVerification.runIfRequested()
     WikiCurationVerification.runIfRequested()
+    WikiCurationResumeVerification.runIfRequested()
+    WikiSourceCheckVerification.runIfRequested()
     StructureVerification.runIfRequested()
+    KnowledgePreview.runIfRequested()
+    InteractionPreview.runIfRequested()
 }
 
 application.run()

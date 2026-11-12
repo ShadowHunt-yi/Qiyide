@@ -9,126 +9,46 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension ThemeModel {
-    /// Loads a theme from a given url and appends it to ``themes``.
-    /// - Parameter url: The URL of the theme
-    /// - Returns: A ``Theme``
-    private func load(from url: URL) throws -> Theme? {
-        do {
-            // get the data from the provided file
-            let json = try Data(contentsOf: url)
-            // decode the json into ``Theme``
-            let theme = try JSONDecoder().decode(Theme.self, from: json)
-            return theme
-        } catch {
-            print(error)
-            return nil
+    /// 加载使用临时数组，不先清空已可用的主题。目录/单文件失败只报告，编辑器有内存兜底。
+    /// 用户颜色覆盖仍只应用到内存；不创建或改写用户主题文件。
+    func loadThemes() throws {
+        var directoryIssues: [String] = []
+        // 保留创建用户主题目录的旧行为，失败也不能使编辑器崩溃或阻断内置主题。
+        if !filemanager.fileExists(atPath: themesURL.path) {
+            do { try filemanager.createDirectory(at: themesURL, withIntermediateDirectories: true) }
+            catch { directoryIssues.append("用户主题目录无法创建，使用内置或内存安全主题") }
         }
-    }
-
-    /// Loads all available themes from `~/Library/Application Support/Qiyide/Themes/`
-    ///
-    /// If no themes are available, it will create a default theme and save
-    /// it to the location mentioned above.
-    ///
-    /// When overrides are found in `~/Library/Application Support/Qiyide/settings.json`
-    /// they are applied to the loaded themes without altering the original
-    /// the files in `~/Library/Application Support/Qiyide/Themes/`.
-    func loadThemes() throws { // swiftlint:disable:this function_body_length
-        if let bundledThemesURL = bundledThemesURL {
-            // remove all themes from memory
-            themes.removeAll()
-
-            var isDir: ObjCBool = false
-
-            // check if a themes directory exists, otherwise create one
-            if !filemanager.fileExists(atPath: themesURL.path, isDirectory: &isDir) {
-                try filemanager.createDirectory(at: themesURL, withIntermediateDirectories: true)
-            }
-
-            // get all URLs in users themes folder that end with `.cetheme`
-            let userDefinedThemeFilenames = try filemanager.contentsOfDirectory(atPath: themesURL.path).filter {
-                $0.contains(".cetheme")
-            }
-            let userDefinedThemeURLs = userDefinedThemeFilenames.map {
-                themesURL.appending(path: $0)
-            }
-
-            // get all bundled theme URLs
-            let bundledThemeFilenames = try filemanager.contentsOfDirectory(atPath: bundledThemesURL.path).filter {
-                $0.contains(".cetheme")
-            }
-            let bundledThemeURLs = bundledThemeFilenames.map {
-                bundledThemesURL.appending(path: $0)
-            }
-
-            // combine user theme URLs with bundled theme URLs
-            let themeURLs = userDefinedThemeURLs + bundledThemeURLs
-
-            let prefs = Settings.shared.preferences
-
-            // load each theme from disk and store in memory
-            try themeURLs.forEach { fileURL in
-                if var theme = try load(from: fileURL) {
-
-                    // get all properties of terminal and editor colors
-                    guard let terminalColors = try theme.terminal.allProperties() as? [String: Theme.Attributes],
-                          let editorColors = try theme.editor.allProperties() as? [String: Theme.Attributes]
-                    else {
-                        print("error")
-                        // TODO: Throw a proper error
-                        throw NSError() // swiftlint:disable:this discouraged_direct_init
-                    }
-
-                    // check if there are any overrides in `settings.json`
-                    if let overrides = prefs.theme.overrides[theme.name]?["terminal"] {
-                        terminalColors.forEach { (key, _) in
-                            if let attributes = overrides[key] {
-                                theme.terminal[key] = attributes
-                            }
-                        }
-                    }
-
-                    if let overrides = prefs.theme.overrides[theme.name]?["editor"] {
-                        editorColors.forEach { (key, _) in
-                            if let attributes = overrides[key] {
-                                theme.editor[key] = attributes
-                            }
-                        }
-                    }
-
-                    theme.isBundled = fileURL.path.contains(bundledThemesURL.path)
-
-                    theme.fileURL = fileURL
-
-                    // add the theme to themes array
-                    self.themes.append(theme)
-
-                    // if there already is a selected theme in `settings.json` select this theme
-                    // otherwise take the first in the list
-                    self.selectedDarkTheme = self.darkThemes.first {
-                        $0.name == prefs.theme.selectedDarkTheme
-                    } ?? self.darkThemes.first
-
-                    self.selectedLightTheme = self.lightThemes.first {
-                        $0.name == prefs.theme.selectedLightTheme
-                    } ?? self.lightThemes.first
-
-                    // For selecting the default theme, doing it correctly on startup requires some more logic
-                    let userSelectedTheme = self.themes.first { $0.name == prefs.theme.selectedTheme }
-                    let systemAppearance = NSAppearance.currentDrawing().name
-
-                    if userSelectedTheme != nil {
-                        self.selectedTheme = userSelectedTheme
-                    } else {
-                        if systemAppearance == .darkAqua {
-                            self.selectedTheme = self.selectedDarkTheme
-                        } else {
-                            self.selectedTheme = self.selectedLightTheme
-                        }
+        let result = ThemeResourceLoader.load(userDirectory: themesURL, bundledDirectory: bundledThemesURL)
+        let prefs = Settings.shared.preferences.theme
+        var loaded: [Theme] = []
+        var issues = directoryIssues + result.issues
+        for var theme in result.themes {
+            do {
+                let terminalKeys = try theme.terminal.allProperties() as? [String: Theme.Attributes] ?? [:]
+                let editorKeys = try theme.editor.allProperties() as? [String: Theme.Attributes] ?? [:]
+                if let overrides = prefs.overrides[theme.name]?["terminal"] {
+                    for key in terminalKeys.keys {
+                        if let attributes = overrides[key] { theme.terminal[key] = attributes }
                     }
                 }
-            }
+                if let overrides = prefs.overrides[theme.name]?["editor"] {
+                    for key in editorKeys.keys {
+                        if let attributes = overrides[key] { theme.editor[key] = attributes }
+                    }
+                }
+                loaded.append(theme)
+            } catch { issues.append("主题颜色无法读取：" + theme.displayName) }
         }
+        reportThemeLoad(issues.isEmpty ? nil : issues.joined(separator: "；"))
+        // 所有资源不可用时保留上次可用状态，不把 nil / Broken 写回用户选择。
+        guard !loaded.isEmpty else { return }
+        themes = loaded
+        selectedDarkTheme = darkThemes.first { $0.name == prefs.selectedDarkTheme } ?? darkThemes.first
+        selectedLightTheme = lightThemes.first { $0.name == prefs.selectedLightTheme } ?? lightThemes.first
+        let dark = NSAppearance.currentDrawing().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        selectedTheme = themes.first { $0.name == prefs.selectedTheme }
+            ?? (dark ? selectedDarkTheme : selectedLightTheme)
+            ?? themes.first
     }
 
     func importTheme() {

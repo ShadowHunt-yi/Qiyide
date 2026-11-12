@@ -108,16 +108,24 @@ class CEActiveTask: ObservableObject, Identifiable, Hashable {
 
     @MainActor
     func suspend() {
-        if let shellPID = output?.runningPID(), status == .running {
-            kill(shellPID, SIGSTOP)
+        if let shellPID = output?.runningPID(), status.canSuspend {
+            guard kill(shellPID, SIGSTOP) == 0 else {
+                output?.sendOutputMessage("暂停任务失败：\(String(cString: strerror(errno)))")
+                output?.newline()
+                return
+            }
             updateTaskStatus(to: .stopped)
         }
     }
 
     @MainActor
     func resume() {
-        if let shellPID = output?.runningPID(), status == .running {
-            kill(shellPID, SIGCONT)
+        if let shellPID = output?.runningPID(), status.canResume {
+            guard kill(shellPID, SIGCONT) == 0 else {
+                output?.sendOutputMessage("恢复任务失败：\(String(cString: strerror(errno)))")
+                output?.newline()
+                return
+            }
             updateTaskStatus(to: .running)
         }
     }

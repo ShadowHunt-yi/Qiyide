@@ -12,6 +12,12 @@
 #   scripts/verify/wiki-dev/run.sh wiki <仓库> [out.png]      # 离屏渲染整个知识库窗口
 #   scripts/verify/wiki-dev/run.sh structure <仓库> [输出目录] # 结构地图：断言 + 各层级截图
 #   scripts/verify/wiki-dev/run.sh open <仓库>                # 打开真实窗口，人工点验
+#   scripts/verify/wiki-dev/run.sh knowledge-preview [输出目录] # 隔离样例的真实界面截图
+#   scripts/verify/wiki-dev/run.sh interaction-preview [输出目录] # 架构任务真实界面与隔离流程验证
+#   scripts/verify/wiki-dev/run.sh curation-state <仓库> [out.json] # 只读核对历史与当前阶段
+#   scripts/verify/wiki-dev/run.sh curation-resume-preview [输出目录] # 本地续跑/预算真实组件截图
+#   scripts/verify/wiki-dev/run.sh source-check-audit <仓库> [out.json] # 来源原因与别名映射只读核对
+#   scripts/verify/wiki-dev/run.sh source-check-preview [输出目录] # 校验进度与报告真实组件截图
 #   scripts/verify/wiki-dev/run.sh test                       # 跑 CodeEditTests/Features/Wiki 下的单元测试
 #
 # 只读：除 open 模式下人工操作外，不会写被测仓库。
@@ -35,7 +41,7 @@ build() {
         find "$REPO_ROOT/CodeEdit/Features/AIReview" -name '*.swift' \
             | grep -v -E 'AIReviewService|AIReviewWindow|GitClient\+' | sort
     )
-    sources+=("$HERE/Stubs.swift" "$HERE/main.swift")
+    sources+=("$HERE/Stubs.swift" "$HERE/KnowledgePreview.swift" "$HERE/InteractionPreview.swift" "$HERE/main.swift")
 
     # 源码没变就不重编：整包编译要几十秒，反复跑验证时没必要等。
     local stamp="$OUT_DIR/.sources.sha"
@@ -98,7 +104,7 @@ PKG
             -Xlinker -rpath -Xlinker "$clt/Library/Developer/usr/lib"
         )
     fi
-    (cd "$pkg" && swift test --disable-sandbox --disable-xctest "${flags[@]}" 2>&1)
+    (cd "$pkg" && swift test --disable-sandbox --disable-xctest ${flags[@]+"${flags[@]}"} 2>&1)
 }
 
 need_target() {
@@ -124,6 +130,30 @@ case "$MODE" in
         need_target; build
         mkdir -p "${EXTRA:-$OUT_DIR/structure}"
         QIYIDE_VERIFY_STRUCTURE="$TARGET" QIYIDE_VERIFY_STRUCTURE_OUT="${EXTRA:-$OUT_DIR/structure}" "$BIN"
+        ;;
+    source-check-audit)
+        need_target; build
+        QIYIDE_VERIFY_SOURCE_CHECK_ROOT="$TARGET" QIYIDE_VERIFY_SOURCE_CHECK_JSON="${EXTRA:-$OUT_DIR/source-check-audit.json}" "$BIN"
+        ;;
+    source-check-preview)
+        build
+        QIYIDE_VERIFY_SOURCE_CHECK_PREVIEW="${TARGET:-$OUT_DIR/source-check-preview}" "$BIN"
+        ;;
+    curation-state)
+        need_target; build
+        QIYIDE_VERIFY_CURATE_STATE="$TARGET" QIYIDE_VERIFY_CURATE_STATE_OUT="${EXTRA:-$OUT_DIR/curation-state.json}" "$BIN"
+        ;;
+    curation-resume-preview)
+        build
+        QIYIDE_VERIFY_CURATE_RESUME_OUT="${TARGET:-$OUT_DIR/curation-resume-preview}" "$BIN"
+        ;;
+    knowledge-preview)
+        build
+        QIYIDE_VERIFY_KNOWLEDGE_OUT="${TARGET:-$OUT_DIR/knowledge-preview}" "$BIN"
+        ;;
+    interaction-preview)
+        build
+        QIYIDE_VERIFY_INTERACTION_OUT="${TARGET:-$OUT_DIR/interaction-preview}" "$BIN"
         ;;
     open)
         need_target; build

@@ -24,6 +24,7 @@ struct WikiEntryEditor: View {
 
     @State private var tagsText: String
     @State private var sourcesText: String
+    @State private var scopePathsText: String
     @State private var relationsText: String
     /// 空串表示「未归类」。用 String 而不是 optional 是为了直接绑到 Picker。
     @State private var domainSelection: String
@@ -42,6 +43,7 @@ struct WikiEntryEditor: View {
         self.onDelete = onDelete
         _tagsText = State(initialValue: draft.tags.joined(separator: ", "))
         _sourcesText = State(initialValue: draft.sources.joined(separator: ", "))
+        _scopePathsText = State(initialValue: draft.scopePaths.joined(separator: ", "))
         _relationsText = State(
             initialValue: draft.relations.map { "\($0.kind):\($0.target)" }.joined(separator: "; ")
         )
@@ -103,10 +105,19 @@ struct WikiEntryEditor: View {
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 11))
                     }
-                    labeled("关联代码路径（逗号分隔）") {
-                        TextField("CodeEdit/Features/...", text: $sourcesText)
+                    labeled("实际文件来源（仓库相对路径，逗号分隔）") {
+                        TextField("app/src/main/java/.../Rule.java", text: $sourcesText)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 11, design: .monospaced))
+                    }
+                    labeled("来源范围（完整目录，可空，逗号分隔）") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField("app/src/main/java/.../agent/suggest", text: $scopePathsText)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11, design: .monospaced))
+                            Text("agent/suggest 可能只是业务简称；请填实际目录。修改来源或范围后需要重新人工核对。")
+                                .font(.system(size: 9)).foregroundStyle(.secondary)
+                        }
                     }
                     labeled("关系（关系词:目标; 多条用分号）") {
                         TextField("属于:改动审查; 导致:回归缺陷", text: $relationsText)
@@ -157,6 +168,7 @@ struct WikiEntryEditor: View {
         if saved.title.isEmpty { saved.title = draft.id }
         saved.tags = split(tagsText)
         saved.sources = split(sourcesText)
+        saved.scopePaths = split(scopePathsText)
         saved.domains = domainSelection.isEmpty ? [] : [domainSelection]
         saved.relations = relationsText
             .split(separator: ";")

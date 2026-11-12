@@ -12,6 +12,7 @@
 //  知识正文只写「为什么」。
 //
 
+import Darwin
 import Foundation
 
 // MARK: - 分层
@@ -86,6 +87,9 @@ struct WikiArchitecture: Codable, Sendable {
     var generatedAt: Double = 0
     /// 产出这份划分的模型标识，换模型后可以判断是否重算。
     var generatedBy: String = ""
+    /// 可选字段保持旧 architecture.json 可读；任务完成不等于业务已验证。
+    var generation: WikiArchitectureGeneration?
+
 
     static let empty = WikiArchitecture()
 
@@ -156,22 +160,39 @@ struct WikiArchitecture: Codable, Sendable {
     }
 
     static func load(root: URL) -> WikiArchitecture {
-        guard let data = try? Data(contentsOf: url(root: root)),
-              let value = try? JSONDecoder().decode(WikiArchitecture.self, from: data) else {
-            return .empty
-        }
-        return value
+        (try? loadValidated(root: root)) ?? .empty
     }
 
-    func save(root: URL) {
+    static func loadValidated(root: URL) throws -> WikiArchitecture {
+        try JSONDecoder().decode(WikiArchitecture.self, from: Data(contentsOf: url(root: root)))
+    }
+
+    /// 暂存、读回验证后才原子替换。任何前置写入失败都不会破坏旧架构。
+    func save(root: URL) throws {
         let target = Self.url(root: root)
-        try? FileManager.default.createDirectory(
-            at: target.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        let directory = target.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(self) else { return }
-        try? data.write(to: target, options: .atomic)
+        let data = try encoder.encode(self)
+        let staged = directory.appending(path: ".architecture-\(UUID().uuidString).pending")
+        defer { try? FileManager.default.removeItem(at: staged) }
+        try data.write(to: staged, options: .atomic)
+        let verified = try Data(contentsOf: staged)
+        guard verified == data else { throw CocoaError(.fileReadCorruptFile) }
+        _ = try JSONDecoder().decode(WikiArchitecture.self, from: verified)
+        // POSIX rename 在同一目录内原子替换，不先删除原文件。
+        guard rename(staged.path, target.path) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: target.path])
+        }
     }
+}
+
+struct WikiArchitectureGeneration: Codable, Sendable {
+    enum Method: String, Codable, Sendable {
+        case staticAnalysis, aiAssisted
+    }
+    var method: Method
+    var inputDigest: String
+    var warnings: [String] = []
 }

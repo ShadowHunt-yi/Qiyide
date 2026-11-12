@@ -75,7 +75,7 @@ struct AIReviewView: View {
     init(workspace: WorkspaceDocument, manager: SourceControlManager) {
         self.workspace = workspace
         _service = StateObject(wrappedValue: AIReviewService(manager: manager, workspace: workspace))
-        let root = workspace.fileURL ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let root = manager.workspaceURL
         _wiki = StateObject(wrappedValue: WikiStore(root: root))
     }
 
@@ -445,35 +445,40 @@ struct AIReviewView: View {
 
     /// 把一次改动沉淀成知识草稿。产出的永远是 draft，由人在知识库里确认。
     private func curate(_ entry: ReviewEntry) {
+        guard curatingID == nil else { return }
         guard AINarrativeStore.shared.isReady else {
             curatorNotice = AINarrativeStore.shared.blockedReason ?? "模型未配置"
             return
         }
         let label = AINarrativeStore.shared.providerLabel
-        let input = WikiCurationInput(
-            subject: entry.subject,
-            files: entry.files.map(\.path),
-            signals: entry.signals.map(\.title),
-            diff: service.patch(for: entry)
-        )
+        let paths = entry.files.map(\.path)
+        // 审查补丁是分析时的缓存资料，不能宣称它证明当前源码。读取当前范围的版本在后台完成。
+        let input = WikiCurationInput(subject: entry.subject, files: paths,
+            signals: entry.signals.map(\.title), diff: service.patch(for: entry),
+            basis: "审查缓存补丁的改动观察（\(entry.shortHash)），不代表当前源码已实现；必须人工核对")
         curatingID = entry.id
         curatorNotice = nil
         Task {
+            defer { curatingID = nil }
             do {
                 let draft = try await WikiCurator.propose(
                     input: input,
-                    existing: wiki.entries
+                    existing: wiki.entries,
+                    root: wiki.root
                 )
+                if draft.action == .skip {
+                    curatorNotice = "无需沉淀知识：" + draft.reason
+                    return
+                }
                 let applied = try wiki.applyDraft(
                     draft,
                     generatedBy: label,
-                    sources: Array(input.files.prefix(8))
+                    sources: draft.sources
                 )
                 curatorNotice = "已生成草稿「\(applied.title)」，到知识库确认后生效"
             } catch {
                 curatorNotice = error.localizedDescription
             }
-            curatingID = nil
         }
     }
 
@@ -536,7 +541,7 @@ struct AIReviewView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     ForEach(related) { item in
                         Button {
-                            WikiWindowPresenter.show(workspace: workspace)
+                            WikiWindowPresenter.show(workspace: workspace, root: wiki.root, selectedEntryID: item.id)
                         } label: {
                             HStack(alignment: .top, spacing: 6) {
                                 Circle()
@@ -546,6 +551,7 @@ struct AIReviewView: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(item.title)
                                         .font(.system(size: 11, weight: .medium))
+                                    WikiKnowledgeBadge(assessment: wiki.assessment(for: item))
                                     if !item.summary.isEmpty {
                                         Text(item.summary)
                                             .font(.system(size: 10))
@@ -569,6 +575,17 @@ struct AIReviewView: View {
     @ViewBuilder
     private func narrativeSection(_ entry: ReviewEntry) -> some View {
         section("AI 叙述") {
+            if let knowledge = service.knowledgeContexts[entry.id] {
+                DisclosureGroup("本轮知识依据：\(knowledge.items.count) 条 · 排除 \(knowledge.excludedCount) 条") {
+                    Text(knowledge.text)
+                        .font(.system(size: 10, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("此处为本地原文；模型请求仍会执行脱敏。仅是当次快照，不代表历史提交已验收。")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+                .font(.system(size: 11))
+            }
             switch service.narrative(for: entry) {
             case .unavailable(let reason):
                 HStack(spacing: 8) {

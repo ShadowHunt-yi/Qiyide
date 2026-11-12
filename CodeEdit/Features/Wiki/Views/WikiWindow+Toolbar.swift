@@ -17,50 +17,60 @@ extension WikiWindowView {
 
     var toolbar: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            TextField("搜索标题、标签、正文…", text: $query)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .frame(width: 220)
-
-            Picker("", selection: $typeFilter) {
-                Text("全部类型").tag(WikiEntryType?.none)
-                Divider()
-                ForEach(WikiEntryType.allCases) { type in
-                    Text(type.title).tag(WikiEntryType?.some(type))
+            if centerMode == .architecture || centerMode == .structure {
+                Text(store.root.lastPathComponent)
+                    .font(.system(size: 12, weight: .medium))
+            } else {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                TextField("搜索标题、标签、正文…", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .frame(width: 220)
+    
+                Picker("", selection: $typeFilter) {
+                    Text("全部类型").tag(WikiEntryType?.none)
+                    Divider()
+                    ForEach(WikiEntryType.allCases) { type in
+                        Text(type.title).tag(WikiEntryType?.some(type))
+                    }
                 }
+                .labelsHidden()
+                .frame(width: 110)
             }
-            .labelsHidden()
-            .frame(width: 110)
 
             Spacer()
 
-            Toggle("只看草稿", isOn: $showDraftsOnly)
-                .toggleStyle(.checkbox)
-                .font(.system(size: 11))
-
-            // 草稿多的时候没人愿意一条条点。这里给一个「一键全选草稿」的入口，
-            // 但只做选中、不做直接确认——AI 写的东西仍然要人看过再签字。
-            let draftCount = filteredEntries.filter(\.isDraft).count
-            if draftCount > 1 {
-                Button {
-                    multiSelection = Set(filteredEntries.filter(\.isDraft).map(\.id))
-                    selection = multiSelection.first
-                } label: {
-                    Text("草稿 \(draftCount)")
-                        .font(.system(size: 11))
+            if centerMode == .architecture {
+                Text("\(store.architecture.domains.count) 个域 · \(store.architecture.moduleCount) 个模块")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            } else if centerMode != .structure {
+                Toggle("只看草稿", isOn: $showDraftsOnly)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 11))
+    
+                // 草稿多的时候没人愿意一条条点。这里给一个「一键全选草稿」的入口，
+                // 但只做选中、不做直接确认——AI 写的东西仍然要人看过再签字。
+                let draftCount = filteredEntries.filter(\.isDraft).count
+                if draftCount > 1 {
+                    Button {
+                        multiSelection = Set(filteredEntries.filter(\.isDraft).map(\.id))
+                        selection = multiSelection.first
+                    } label: {
+                        Text("草稿 \(draftCount)")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.link)
+                    .help("选中当前可见的全部草稿，再批量确认或丢弃")
                 }
-                .buttonStyle(.link)
-                .help("选中当前可见的全部草稿，再批量确认或丢弃")
+    
+                Text(domains.graph.domains.isEmpty
+                     ? "\(store.entries.count) 条知识"
+                     : "\(domains.graph.domains.count) 域 · \(store.entries.count) 条知识")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
-
-            Text(domains.graph.domains.isEmpty
-                 ? "\(store.entries.count) 条知识"
-                 : "\(domains.graph.domains.count) 域 · \(store.entries.count) 条知识")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
 
             if curating {
                 ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
@@ -70,6 +80,10 @@ extension WikiWindowView {
                     Button("生成架构视图…") {
                         centerMode = .architecture
                         generateArchitecture()
+                    }
+                    Button("仅静态分析架构…") {
+                        centerMode = .architecture
+                        generateArchitecture(mode: .staticOnly)
                     }
                     Divider()
                     Button("未提交的改动") { curate(.workingTree) }
@@ -126,6 +140,21 @@ extension WikiWindowView {
         .padding(.vertical, 8)
     }
 
+    var knowledgeStatusStrip: some View {
+        HStack(spacing: 8) {
+            Label("人工确认不等于代码已实现", systemImage: "checkmark.bubble")
+            Text("·")
+            Text(store.isCheckingKnowledge ? "正在校验来源" : "来源变化后需要重新核对")
+            Spacer()
+            Button("查看 AI 依据") { showKnowledgeContext = true }
+                .buttonStyle(.link)
+        }
+        .font(.system(size: 10))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
     // MARK: 流水线状态
 
     /// 建模到查阅的五个阶段。全部由数据推导，不落盘——
@@ -138,17 +167,19 @@ extension WikiWindowView {
         if domains.graph.isEmpty { return .identify }
         if !domains.isLocked { return .anchor }
         if store.entries.isEmpty { return .generate }
-        if !store.drafts.isEmpty { return .review }
+        if store.isCheckingKnowledge || store.entries.contains(where: { !store.assessment(for: $0).state.canReference }) { return .review }
         return .ready
     }
 
     var stageStrip: some View {
         HStack(spacing: 5) {
-            stageChip("识别", done: !domains.graph.isEmpty, active: stage == .identify) {
+            stageChip("识别", done: !domains.graph.isEmpty, active: stage == .identify,
+                      enabled: !domains.isAnalyzing) {
                 Task { await domains.analyze() }
             }
             stageArrow
-            stageChip("锚定", done: domains.isLocked, active: stage == .anchor) {
+            stageChip("锚定", done: domains.isLocked, active: stage == .anchor,
+                      enabled: !domains.graph.isEmpty && !domains.isLocked && !domains.isAnalyzing) {
                 domains.lock()
             }
             stageArrow
@@ -156,20 +187,23 @@ extension WikiWindowView {
                 "知识",
                 done: !store.entries.isEmpty,
                 active: stage == .generate,
-                badge: store.entries.isEmpty ? nil : "\(store.entries.count)"
+                badge: store.entries.isEmpty ? nil : "\(store.entries.count)",
+                enabled: !domains.graph.isEmpty && !curating
             ) {
                 generateMissingKnowledge()
             }
             stageArrow
             stageChip(
                 "审核",
-                done: !store.entries.isEmpty && store.drafts.isEmpty,
+                done: !store.entries.isEmpty && !store.isCheckingKnowledge && store.entries.allSatisfy { store.assessment(for: $0).state.canReference },
                 active: stage == .review,
-                badge: store.drafts.isEmpty ? nil : "\(store.drafts.count)"
+                badge: store.drafts.isEmpty ? nil : "\(store.drafts.count)",
+                enabled: !store.entries.isEmpty
             ) {
                 // 只筛不确认：AI 写的东西仍然要人一条条看过。
                 selectedDomain = nil
-                showDraftsOnly = true
+                showDraftsOnly = false
+                centerMode = .knowledge
             }
 
             Spacer()
@@ -182,7 +216,7 @@ extension WikiWindowView {
                           ? "checkmark.shield"
                           : "exclamationmark.shield")
                         .font(.system(size: 9))
-                    Text(coherence.map { $0.isEmpty ? "一致" : "体检 \($0.total)" } ?? "体检")
+                    Text(coherence.map { $0.isEmpty ? "结构关联一致" : "体检 \($0.total)" } ?? "体检")
                         .font(.system(size: 10).monospacedDigit())
                 }
                 .foregroundStyle(coherence?.isEmpty == false ? Color.orange : Color.secondary)
@@ -202,6 +236,7 @@ extension WikiWindowView {
         done: Bool,
         active: Bool,
         badge: String? = nil,
+        enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -226,7 +261,8 @@ extension WikiWindowView {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(helpText(for: title))
+        .disabled(!enabled)
+        .help(enabled ? helpText(for: title) : "此操作当前不可用：请先完成所需数据或等待当前任务结束")
     }
 
     func helpText(for stage: String) -> String {
@@ -234,7 +270,7 @@ extension WikiWindowView {
         case "识别": return "扫包结构、命名、调用与注释，产出领域候选"
         case "锚定": return "人工校正后锁定，避免下次识别覆盖"
         case "知识": return "给还没有知识的域生成草稿"
-        case "审核": return "筛出草稿逐条确认"
+        case "审核": return "核对草稿、历史知识与已变化的来源；不代表业务验收"
         default: return ""
         }
     }
@@ -252,7 +288,13 @@ extension WikiWindowView {
         panel.nameFieldStringValue = "domains.md"
         panel.allowedContentTypes = [.plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? domains.markdownOutline().write(to: url, atomically: true, encoding: .utf8)
+        do {
+            try domains.markdownOutline().write(to: url, atomically: true, encoding: .utf8)
+            curatorMessage = "已导出领域大纲：\(url.path)"
+            curatorError = nil
+        } catch {
+            curatorError = "导出失败，文件未保存：\(error.localizedDescription)"
+        }
     }
 
     func exportModel() {
@@ -263,8 +305,13 @@ extension WikiWindowView {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(domains.graph) else { return }
-        try? data.write(to: url, options: .atomic)
+        do {
+            try encoder.encode(domains.graph).write(to: url, options: .atomic)
+            curatorMessage = "已导出领域模型：\(url.path)"
+            curatorError = nil
+        } catch {
+            curatorError = "导出失败，文件未保存：\(error.localizedDescription)"
+        }
     }
 
     // MARK: 批量操作
@@ -298,20 +345,20 @@ extension WikiWindowView {
             Spacer()
 
             Button("确认草稿") {
-                let count = store.confirm(ids: selectedDrafts.map(\.id))
-                batchNotice = "已确认 \(count) 条"
+                let count = store.confirm(ids: selectedDrafts.filter { $0.proposalFor == nil }.map(\.id))
+                batchNotice = "已确认 \(count) 条；更新建议需单独对照"
                 pruneSelection()
             }
             .controlSize(.small)
-            .disabled(selectedDrafts.isEmpty)
+            .disabled(selectedDrafts.allSatisfy { $0.proposalFor != nil })
 
-            Button("丢弃草稿") {
+            Button("丢弃未编辑草稿") {
                 let count = store.discardDrafts(ids: selectedDrafts.map(\.id))
                 batchNotice = "已丢弃 \(count) 条"
                 pruneSelection()
             }
             .controlSize(.small)
-            .disabled(selectedDrafts.isEmpty)
+            .disabled(selectedDrafts.allSatisfy(\.protectsHumanContent))
 
             Button("删除…") { showBatchDelete = true }
                 .controlSize(.small)

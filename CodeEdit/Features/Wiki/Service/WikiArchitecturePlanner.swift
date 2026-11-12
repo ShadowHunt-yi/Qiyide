@@ -52,7 +52,9 @@ enum WikiArchitecturePlanner {
     static func plan(
         units: [ArchitectureUnit],
         edges: [WikiModuleEdge],
-        modelLabel: String
+        modelLabel: String,
+        staticOnly: Bool = false,
+        onAttempt: (@Sendable (Int, Int) async -> Void)? = nil
     ) async throws -> WikiArchitecture {
         let groups = candidateGroups(units: units, edges: edges)
         guard !groups.isEmpty else {
@@ -60,15 +62,17 @@ enum WikiArchitecturePlanner {
         }
 
         // 组本来就少，说明这个仓库结构简单，不必动用模型。
-        if groups.count <= minDomains + 1 {
-            return directAssembly(groups: groups, modelLabel: modelLabel)
+        try Task.checkCancellation()
+        if staticOnly || groups.count <= minDomains + 1 {
+            var architecture = directAssembly(groups: groups, modelLabel: "静态分析")
+            architecture.moduleCount = units.count
+            architecture.generation = WikiArchitectureGeneration(method: .staticAnalysis, inputDigest: "")
+            return architecture
         }
 
-        let object = try await askModel(groups: groups)
-        var architecture = assemble(object: object, groups: groups)
-        if architecture.domains.isEmpty {
-            architecture = directAssembly(groups: groups, modelLabel: modelLabel)
-        }
+        let object = try await askModel(groups: groups, onAttempt: onAttempt)
+        try Task.checkCancellation()
+        var architecture = try assemble(object: object, groups: groups)
         architecture.generatedBy = modelLabel
         architecture.generatedAt = Date().timeIntervalSince1970
         architecture.moduleCount = units.count
@@ -145,7 +149,10 @@ enum WikiArchitecturePlanner {
 
     // MARK: 阶段二：模型合并
 
-    private static func askModel(groups: [CandidateGroup]) async throws -> [String: Any] {
+    private static func askModel(
+        groups: [CandidateGroup],
+        onAttempt: (@Sendable (Int, Int) async -> Void)?
+    ) async throws -> [String: Any] {
         var lines: [String] = []
         lines.append("候选分组（由目录粗分得出，可能过细，也可能把同一件事切碎了）：")
         for group in groups.sorted(by: { $0.fileCount > $1.fileCount }) {
@@ -189,30 +196,38 @@ enum WikiArchitecturePlanner {
                 AINarrativeStore.shared.blockedReason ?? "模型未配置"
             )
         }
-        return try await completeJSON(kind: kind, request: request)
+        return try await completeJSON(kind: kind, request: request, onAttempt: onAttempt)
     }
 
     // MARK: 组装
 
-    private static func assemble(
+    static func assemble(
         object: [String: Any],
         groups: [CandidateGroup]
-    ) -> WikiArchitecture {
-        guard let items = object["domains"] as? [[String: Any]] else {
-            return .empty
+    ) throws -> WikiArchitecture {
+        guard let items = object["domains"] as? [[String: Any]], !items.isEmpty else {
+            throw WikiCuratorError.invalidResponse("模型没有返回有效的架构域，请重试或使用静态分析")
         }
         let byKey = Dictionary(uniqueKeysWithValues: groups.map { ($0.key, $0) })
 
         var architecture = WikiArchitecture()
         var used = Set<String>()
+        var domainNames = Set<String>()
+        var warnings: [String] = []
 
         for item in items {
             guard let name = (item["name"] as? String)?.trimmingCharacters(in: .whitespaces),
                   !name.isEmpty else { continue }
             let layer = WikiLayer(rawValue: item["layer"] as? String ?? "") ?? .domain
             let purpose = (item["purpose"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-            let keys = (item["groups"] as? [String] ?? []).filter { byKey[$0] != nil }
+            let requestedKeys = item["groups"] as? [String] ?? []
+            let keys = requestedKeys.filter { byKey[$0] != nil }
+            if keys.count != requestedKeys.count { warnings.append("已忽略域「\(name)」中不存在的分组") }
             guard !keys.isEmpty else { continue }
+            guard domainNames.insert(name).inserted,
+                  Set(keys).count == keys.count, Set(keys).isDisjoint(with: used) else {
+                throw WikiCuratorError.invalidResponse("模型返回了重复域名或重复归属，请重试或使用静态分析")
+            }
 
             var modules: [String] = []
             for key in keys {
@@ -238,18 +253,24 @@ enum WikiArchitecturePlanner {
         }
 
         // 模型漏掉的组不能丢：单独归入「其他」，并标注层为领域。
+        guard !used.isEmpty else {
+            throw WikiCuratorError.invalidResponse("模型划分没有覆盖任何真实分组，请重试或使用静态分析")
+        }
         let leftovers = groups.filter { !used.contains($0.key) }
         if !leftovers.isEmpty {
             let modules = leftovers.flatMap(\.modules)
+            var leftoverName = "未覆盖模块"
+            while domainNames.contains(leftoverName) { leftoverName += "（待核对）" }
+            warnings.append("\(leftovers.count) 个分组未被模型覆盖，已单列为「\(leftoverName)」，需要人工核对")
             architecture.domains.append(WikiDomain(
-                name: "其他",
+                name: leftoverName,
                 layer: .domain,
                 purpose: "模型划分未覆盖的模块，建议人工确认",
                 modules: modules,
                 keyRules: []
             ))
             for module in modules {
-                architecture.domainOfModule[module] = "其他"
+                architecture.domainOfModule[module] = leftoverName
             }
         }
         // 模型编造了不存在的组名时，上面会静默丢弃；这里补齐所有模块的归属。
@@ -258,6 +279,9 @@ enum WikiArchitecturePlanner {
                 architecture.domainOfModule[module] = architecture.domains.first?.name ?? "其他"
             }
         }
+        architecture.generation = WikiArchitectureGeneration(
+            method: .aiAssisted, inputDigest: "", warnings: warnings
+        )
         return architecture
     }
 
@@ -312,15 +336,19 @@ enum WikiArchitecturePlanner {
 
     private static func completeJSON(
         kind: AIProviderKind,
-        request: AINarrativeRequest
+        request: AINarrativeRequest,
+        onAttempt: (@Sendable (Int, Int) async -> Void)?
     ) async throws -> [String: Any] {
         do {
             // 一次要输出 6 个域的完整描述，4096 常被推理吃光，这里给足。
             return try await WikiModelClient.callJSON(
                 kind: kind,
                 request: request,
-                budgets: [8192, 8192]
+                budgets: [8192, 8192],
+                onAttempt: onAttempt
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw WikiCuratorError.invalidResponse(AINarrativeError.describe(error))
         }

@@ -32,7 +32,7 @@ enum WikiEntryType: String, CaseIterable, Identifiable, Codable {
         case .topic: return "主题"
         case .decision: return "决策"
         case .module: return "模块"
-        case .rule: return "规范"
+        case .rule: return "规则"
         case .term: return "术语"
         case .incident: return "事故"
         }
@@ -44,7 +44,7 @@ enum WikiEntryType: String, CaseIterable, Identifiable, Codable {
 
 // MARK: - 状态
 
-/// 草稿由 AI 生成、等待人确认；已确认的条目才会被当作可信知识使用。
+/// 人工确认状态；能否作为 AI 依据，还必须通过 WikiKnowledgeReview 的内容与来源校验。
 enum WikiStatus: String, Codable {
     case draft
     case confirmed
@@ -91,10 +91,20 @@ struct WikiEntry: Identifiable, Hashable {
     var body: String
     var updatedAt: Date
     var fileURL: URL
-    /// AI 起草、尚未被人确认的条目为 draft。
-    var status: WikiStatus = .confirmed
+    /// 未确认或人工修改后待复核的内容为 draft。
+    var status: WikiStatus = .draft
     /// 生成这条内容所用的模型标识，便于事后追溯「这句话是谁写的」。
     var generatedBy: String = ""
+    /// 确认只绑定这版内容和来源。旧文件没有记录时可读，但不自动信任。
+    var confirmation: WikiConfirmation?
+    /// AI 对已有知识的更新建议独立存为草稿，不覆盖原条目。
+    var proposalFor: String?
+    var proposalBase: String?
+    var generationDigest: String?
+    var protectsHumanContent = false
+    /// 范围可以是目录或域，sources 必须是可核验的文件来源。
+    var scopePaths: [String] = []
+    var provenance: WikiGenerationProvenance?
 
     /// 归一化后的标题，用于解析 `[[链接]]`。
     var normalizedTitle: String { WikiEntry.normalize(title) }
@@ -124,6 +134,10 @@ struct WikiEntry: Identifiable, Hashable {
         return firstLine ?? ""
     }
 
+    static func canonicalBody(_ body: String) -> String {
+        body.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func normalize(_ title: String) -> String {
         title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
@@ -148,8 +162,15 @@ extension WikiEntry {
         var domains: [String] = []
         var relations: [WikiRelation] = []
         var body = text
-        var status: WikiStatus = .confirmed
+        var status: WikiStatus = .draft
         var generatedBy = ""
+        var confirmation: WikiConfirmation?
+        var proposalFor: String?
+        var proposalBase: String?
+        var generationDigest: String?
+        var protectsHumanContent = false
+        var scopePaths: [String] = []
+        var provenance: WikiGenerationProvenance?
         var updatedAt = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]))?
             .contentModificationDate ?? Date()
 
@@ -166,6 +187,12 @@ extension WikiEntry {
                     type = WikiEntryType(rawValue: value.lowercased()) ?? .topic
                 case "tags":
                     tags = splitList(value)
+                case "scope-paths":
+                    scopePaths = splitList(value)
+                case "generation-provenance":
+                    if let data = Data(base64Encoded: value) {
+                        provenance = try? JSONDecoder().decode(WikiGenerationProvenance.self, from: data)
+                    }
                 case "sources", "source":
                     sources = splitList(value)
                 // `domain` 是手写时的简写，`domains` 是生成时的复数形式，两者都认。
@@ -174,9 +201,23 @@ extension WikiEntry {
                 case "relations":
                     relations = parseRelations(value)
                 case "status":
-                    status = WikiStatus(rawValue: value.lowercased()) ?? .confirmed
+                    status = WikiStatus(rawValue: value.lowercased()) ?? .draft
                 case "generated":
                     generatedBy = value
+                case "confirmation":
+                    if let data = value.data(using: .utf8) {
+                        let decoder = JSONDecoder()
+                        decoder.dateDecodingStrategy = .iso8601
+                        confirmation = try? decoder.decode(WikiConfirmation.self, from: data)
+                    }
+                case "proposal-for":
+                    proposalFor = value.isEmpty ? nil : value
+                case "proposal-base":
+                    proposalBase = value.isEmpty ? nil : value
+                case "protect-human-content":
+                    protectsHumanContent = value.lowercased() == "true"
+                case "generation-digest":
+                    generationDigest = value.isEmpty ? nil : value
                 case "updated":
                     if let date = Self.iso8601.date(from: value) { updatedAt = date }
                 default:
@@ -194,11 +235,17 @@ extension WikiEntry {
             sources: sources,
             domains: domains,
             relations: relations,
-            body: body.trimmingCharacters(in: .whitespacesAndNewlines),
+            body: canonicalBody(body),
             updatedAt: updatedAt,
             fileURL: fileURL,
             status: status,
-            generatedBy: generatedBy
+            generatedBy: generatedBy,
+            confirmation: confirmation,
+            proposalFor: proposalFor,
+            proposalBase: proposalBase,
+            generationDigest: generationDigest,
+            protectsHumanContent: protectsHumanContent,
+            scopePaths: scopePaths, provenance: provenance
         )
     }
 
@@ -210,15 +257,31 @@ extension WikiEntry {
         if !tags.isEmpty { lines.append("tags: \(tags.joined(separator: ", "))") }
         if !sources.isEmpty { lines.append("sources: \(sources.joined(separator: ", "))") }
         if !domains.isEmpty { lines.append("domains: \(domains.joined(separator: ", "))") }
+        if !scopePaths.isEmpty { lines.append("scope-paths: \(scopePaths.joined(separator: ", "))") }
+        if let provenance, let data = try? provenance.encoded() {
+            lines.append("generation-provenance: \(data.base64EncodedString())")
+        }
         if !relations.isEmpty {
             lines.append("relations: \(relations.map { "\($0.kind):\($0.target)" }.joined(separator: "; "))")
         }
         lines.append("status: \(status.rawValue)")
         if !generatedBy.isEmpty { lines.append("generated: \(generatedBy)") }
+        if let confirmation {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.sortedKeys]
+            if let data = try? encoder.encode(confirmation), let json = String(data: data, encoding: .utf8) {
+                lines.append("confirmation: \(json)")
+            }
+        }
+        if let proposalFor { lines.append("proposal-for: \(proposalFor)") }
+        if let proposalBase { lines.append("proposal-base: \(proposalBase)") }
+        if let generationDigest { lines.append("generation-digest: \(generationDigest)") }
+        if protectsHumanContent { lines.append("protect-human-content: true") }
         lines.append("updated: \(Self.iso8601.string(from: updatedAt))")
         lines.append("---")
         lines.append("")
-        lines.append(body)
+        lines.append(Self.canonicalBody(body))
         lines.append("")
         return lines.joined(separator: "\n")
     }

@@ -229,10 +229,13 @@ enum WikiWindowVerification {
         // 只看缓存时，条目被删/归档后这些文件仍算「已建档」，面板会显示
         // 「已建档 N、待处理 M」而库里一条对应条目都没有。
         do {
-            let runner = WikiCurationRunner.shared
-            runner.preview(root: root, curatedPaths: Set(store.entries.flatMap(\.sources)))
-            let total = runner.totalCandidates
-            let fresh = runner.alreadyProcessed
+            let inventory = WikiRepoIngest.inventory(
+                root: root, insights: WikiInsightStore.load(root: root),
+                model: AINarrativeStore.shared.providerLabel,
+                curatedPaths: Set(store.entries.flatMap(\.sources))
+            )
+            let total = inventory.total
+            let fresh = inventory.fresh
             print("[verify][wiki] 建档面板：全仓 \(total) · 已建档 \(fresh) · 待处理 \(max(total - fresh, 0))")
             print("[verify][wiki]   缓存口径（旧）：\(WikiRepoIngest.inventory(root: root, insights: WikiInsightStore.load(root: root), model: AINarrativeStore.shared.providerLabel).fresh) 个会被误判为已建档")
         }

@@ -101,3 +101,9 @@ iOSInjectionProject/
 .qiyide/
 # profiling 产物
 default.profraw
+
+# Local diagnostic snapshots may include user repositories and crash reports.
+.workflow/
+# Python interpreter caches are not source artifacts.
+__pycache__/
+*.py[cod]
